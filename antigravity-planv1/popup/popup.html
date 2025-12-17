@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HN Read Later</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <h1>
+        <span class="logo">Y</span>
+        HN Read Later
+      </h1>
+    </header>
+    
+    <div class="popup-stats" id="stats">
+      <span class="stat">
+        <strong id="total-count">0</strong> saved
+      </span>
+      <span class="stat">
+        <strong id="in-progress-count">0</strong> in progress
+      </span>
+    </div>
+    
+    <main class="popup-content">
+      <div class="loading" id="loading">Loading...</div>
+      
+      <div class="empty-state" id="empty-state" style="display: none;">
+        <div class="empty-icon">📑</div>
+        <p>No saved items yet</p>
+        <p class="empty-hint">Visit an HN thread and click "save for later"</p>
+      </div>
+      
+      <ul class="item-list" id="item-list"></ul>
+    </main>
+    
+    <footer class="popup-footer">
+      <a href="https://news.ycombinator.com" target="_blank" class="hn-link">
+        Open Hacker News ↗
+      </a>
+    </footer>
+  </div>
+  
+  <script src="../lib/storage.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

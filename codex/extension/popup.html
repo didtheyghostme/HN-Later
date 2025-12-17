@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HN Later</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <div class="title">HN Later</div>
+        <div class="subtitle">Read later + progress</div>
+      </header>
+      <section id="content" class="content" aria-live="polite"></section>
+      <footer class="footer">
+        <button id="clearAllBtn" class="btn btn--danger" type="button">
+          Clear all
+        </button>
+      </footer>
+    </main>
+    <script src="storage.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

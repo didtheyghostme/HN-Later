@@ -1,0 +1,152 @@
+:root {
+  --hnlater-bg: rgba(17, 24, 39, 0.92);
+  --hnlater-fg: #f9fafb;
+  --hnlater-muted: rgba(249, 250, 251, 0.85);
+  --hnlater-border: rgba(255, 255, 255, 0.12);
+  --hnlater-accent: #ff6600;
+  --hnlater-accent-2: #10b981;
+}
+
+#hnlater-overlay {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2147483647;
+  width: 260px;
+  background: var(--hnlater-bg);
+  color: var(--hnlater-fg);
+  border: 1px solid var(--hnlater-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  font: 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+#hnlater-overlay * {
+  box-sizing: border-box;
+}
+
+.hnlater-overlay__header {
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--hnlater-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hnlater-overlay__title {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.hnlater-overlay__close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--hnlater-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.hnlater-overlay__body {
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.hnlater-overlay__progressRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hnlater-overlay__progressText {
+  font-weight: 600;
+}
+
+.hnlater-overlay__meta {
+  color: var(--hnlater-muted);
+  font-size: 11px;
+}
+
+.hnlater-overlay__bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.hnlater-overlay__barFill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(135deg, var(--hnlater-accent), #ffa45c);
+}
+
+.hnlater-overlay__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.hnlater-btn {
+  appearance: none;
+  border: 1px solid var(--hnlater-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--hnlater-fg);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.hnlater-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.hnlater-btn--primary {
+  border-color: rgba(255, 102, 0, 0.55);
+  background: rgba(255, 102, 0, 0.16);
+}
+
+.hnlater-btn--primary:hover {
+  background: rgba(255, 102, 0, 0.24);
+}
+
+.hnlater-btn--good {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.16);
+}
+
+.hnlater-btn--good:hover {
+  background: rgba(16, 185, 129, 0.24);
+}
+
+.hnlater-overlay__status {
+  color: var(--hnlater-muted);
+  font-size: 11px;
+}
+
+tr.hnlater-unread td.default {
+  border-left: 4px solid var(--hnlater-accent);
+  background: rgba(255, 102, 0, 0.08);
+}
+
+tr.hnlater-read td.default {
+  border-left: 4px solid var(--hnlater-accent-2);
+}
+
+tr.hnlater-resume-target td.default {
+  outline: 2px solid rgba(255, 102, 0, 0.65);
+  outline-offset: -2px;
+}
+
+.hnlater-save-link {
+  margin-left: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+

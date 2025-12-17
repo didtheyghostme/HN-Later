@@ -1,0 +1,171 @@
+/* HN Later - Content Styles */
+
+/* Save buttons in story list */
+.hn-later-btn a {
+  cursor: pointer;
+}
+
+.hn-later-save {
+  color: #828282;
+}
+
+.hn-later-save:hover {
+  color: #ff6600;
+}
+
+.hn-later-remove {
+  color: #ff6600;
+  font-weight: 500;
+}
+
+.hn-later-remove:hover {
+  color: #cc5200;
+}
+
+.hn-later-progress-inline {
+  color: #828282;
+  font-size: 10px;
+}
+
+/* Progress container on item page */
+.hn-later-progress-container {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border: 1px solid #0f3460;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: 16px 0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.hn-later-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.hn-later-progress-label {
+  color: #e94560;
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.hn-later-progress-text {
+  color: #a0a0a0;
+  font-size: 13px;
+}
+
+.hn-later-progress-bar-container {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  height: 10px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.hn-later-progress-bar {
+  background: linear-gradient(90deg, #e94560 0%, #ff6b6b 50%, #feca57 100%);
+  height: 100%;
+  border-radius: 10px;
+  transition: width 0.5s ease-out;
+  box-shadow: 0 0 10px rgba(233, 69, 96, 0.5);
+}
+
+.hn-later-progress-percentage {
+  color: #fff;
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+  text-shadow: 0 2px 10px rgba(233, 69, 96, 0.5);
+}
+
+/* Continue reading button */
+.hn-later-continue-btn {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.hn-later-continue-btn:hover {
+  background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(233, 69, 96, 0.4);
+}
+
+/* Read comment indicator */
+.hn-later-read {
+  position: relative;
+}
+
+.hn-later-read::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, #00d4aa 0%, #00b894 100%);
+  border-radius: 2px;
+  opacity: 0.7;
+}
+
+/* Highlight animation for scrolled-to comments */
+.hn-later-highlight {
+  animation: hn-later-pulse 2s ease-out;
+}
+
+@keyframes hn-later-pulse {
+  0% {
+    background-color: rgba(233, 69, 96, 0.3);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Notification toast */
+.hn-later-notification {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #fff;
+  padding: 14px 24px;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  z-index: 10000;
+  font-size: 14px;
+  font-weight: 500;
+  animation: hn-later-slideIn 0.3s ease-out;
+  border: 1px solid #e94560;
+}
+
+.hn-later-notification-hide {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.3s ease-out;
+}
+
+@keyframes hn-later-slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HN Later</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">📑</span>
+        <h1>HN Later</h1>
+      </div>
+      <p class="tagline">Your Hacker News reading list</p>
+    </header>
+
+    <div class="stats">
+      <div class="stat-item">
+        <span class="stat-number" id="totalItems">0</span>
+        <span class="stat-label">Saved</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-number" id="avgProgress">0%</span>
+        <span class="stat-label">Avg. Read</span>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="all">All</button>
+      <button class="tab" data-tab="unread">Unread</button>
+      <button class="tab" data-tab="reading">Reading</button>
+      <button class="tab" data-tab="complete">Complete</button>
+    </div>
+
+    <div id="itemList" class="item-list">
+      <div class="empty-state" id="emptyState">
+        <span class="empty-icon">📚</span>
+        <p>No saved items yet</p>
+        <p class="empty-hint">Click "save for later" on any HN story</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

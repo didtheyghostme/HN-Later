@@ -14,6 +14,7 @@ export default defineContentScript({
 
     // Add collapse buttons to all comments on any item page
     if (isItemPage) {
+      document.body.classList.add('hn-later-item-page');
       initCollapseButtons();
     }
 
@@ -62,9 +63,12 @@ async function initSaveLinks() {
       await toggleSaveFromListing(saveLink, row);
     });
 
-    // Insert after comments link with separator
-    const separator = document.createTextNode(' | ');
-    commentsLink.after(separator, saveLink);
+    // Wrap in a container so separator + link can be hidden/shown together
+    const container = document.createElement('span');
+    container.className = 'hn-later-save-container';
+    container.innerHTML = ' | ';
+    container.appendChild(saveLink);
+    subtext.appendChild(container);
   }
 }
 

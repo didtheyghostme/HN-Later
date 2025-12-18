@@ -1,15 +1,36 @@
-/* Save Link (HN native style) */
+/* Save Link Container (includes separator) */
+.hn-later-save-container {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
 .hn-later-save-link {
   color: #828282;
   text-decoration: none;
+}
+
+/* Show on row hover (listing pages) */
+tr.athing:hover + tr .hn-later-save-container,
+tr.athing + tr:hover .hn-later-save-container {
+  opacity: 1;
 }
 
 .hn-later-save-link:hover {
   text-decoration: underline;
 }
 
+/* Always visible when saved */
+.hn-later-save-container:has(.saved) {
+  opacity: 1;
+}
+
 .hn-later-save-link.saved {
   color: #ff6600;
+}
+
+/* Always show on item pages (marked by extension) */
+.hn-later-item-page .hn-later-save-container {
+  opacity: 1;
 }
 
 /* NEW Label */

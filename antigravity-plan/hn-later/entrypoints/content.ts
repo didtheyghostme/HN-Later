@@ -9,6 +9,7 @@ export default defineContentScript({
 
     if (isItemPage && storyId) {
       initItemPage(storyId);
+      initKeyboardShortcuts(storyId);
     }
 
     // Add collapse buttons to all comments on any item page
@@ -28,9 +29,15 @@ async function initSaveLinks() {
   // Find all story rows on the page (listing pages)
   const storyRows = document.querySelectorAll<HTMLTableRowElement>('tr.athing:not(.comtr)');
 
+  const storyId = new URLSearchParams(window.location.search).get('id');
+  const isItemPage = window.location.pathname === '/item';
+
   for (const row of storyRows) {
     const id = row.id;
     if (!id) continue;
+
+    // Skip the main story on an item page because initItemPage handles it specifically
+    if (isItemPage && id === storyId) continue;
 
     const subtextRow = row.nextElementSibling;
     const subtext = subtextRow?.querySelector('td.subtext');
@@ -440,4 +447,65 @@ function showToast(message: string) {
   toast.textContent = message;
   toast.classList.add('show');
   setTimeout(() => toast?.classList.remove('show'), 2000);
+}
+
+// ============================================
+// KEYBOARD SHORTCUTS
+// ============================================
+
+function initKeyboardShortcuts(storyId: string) {
+  document.addEventListener('keydown', async (e) => {
+    // Cmd/Ctrl + Shift + S to save/unsave
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const isSaved = await isItemSaved(storyId);
+      
+      if (isSaved) {
+        await removeItem(storyId);
+        showToast('📚 Removed from saved');
+        
+        // Update save link if present
+        const saveLink = document.querySelector<HTMLAnchorElement>('.hn-later-save-link');
+        if (saveLink) {
+          saveLink.textContent = 'save';
+          saveLink.classList.remove('saved');
+        }
+        
+        // Remove tracking UI
+        document.querySelector('.hn-later-scrollbar')?.remove();
+        document.querySelector('.hn-later-buttons')?.remove();
+      } else {
+        const titleEl = document.querySelector('.titleline > a, .storylink') as HTMLAnchorElement;
+        const title = titleEl?.textContent || 'Untitled';
+        const url = titleEl?.href || window.location.href;
+        const hnUrl = window.location.href;
+        const comments = document.querySelectorAll<HTMLTableRowElement>('tr.athing.comtr');
+        
+        await saveItem({
+          id: storyId,
+          title,
+          url,
+          hnUrl,
+          totalComments: comments.length,
+        });
+        showToast('📌 Saved for later (Cmd+Shift+S)');
+        
+        // Update save link if present
+        const saveLink = document.querySelector<HTMLAnchorElement>('.hn-later-save-link');
+        if (saveLink) {
+          saveLink.textContent = 'saved ✓';
+          saveLink.classList.add('saved');
+        }
+        
+        // Start tracking if not already
+        const storyData = await getItem(storyId);
+        if (storyData && !document.querySelector('.hn-later-scrollbar')) {
+          // Reload to initialize tracking UI
+          window.location.reload();
+        }
+      }
+    }
+  });
 }

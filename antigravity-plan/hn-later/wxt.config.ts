@@ -7,4 +7,7 @@ export default defineConfig({
     permissions: ['storage'],
     host_permissions: ['*://*.ycombinator.com/*'],
   },
+  runner: {
+    disabled: true,
+  }
 });

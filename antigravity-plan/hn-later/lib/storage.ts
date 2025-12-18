@@ -7,8 +7,8 @@ interface SavedStory {
   hnUrl: string;
   savedAt: number;
   lastVisit: number;
-  seenComments: string[];
-  readComments: string[];
+  checkpointCommentId: string | null;
+  checkpointTimestamp: number | null;
   totalComments: number;
 }
 
@@ -24,17 +24,21 @@ let dbPromise: Promise<IDBPDatabase<HNLaterDB>> | null = null;
 
 function getDB(): Promise<IDBPDatabase<HNLaterDB>> {
   if (!dbPromise) {
-    dbPromise = openDB<HNLaterDB>('hn-later', 1, {
-      upgrade(db) {
-        const store = db.createObjectStore('stories', { keyPath: 'id' });
-        store.createIndex('by-savedAt', 'savedAt');
+    dbPromise = openDB<HNLaterDB>('hn-later', 2, {
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
+          const store = db.createObjectStore('stories', { keyPath: 'id' });
+          store.createIndex('by-savedAt', 'savedAt');
+        }
+        // Migration from v1 to v2: seenComments/readComments -> checkpoint
+        // Old data will work, new fields default to null
       },
     });
   }
   return dbPromise;
 }
 
-export async function saveItem(item: Omit<SavedStory, 'savedAt' | 'lastVisit' | 'seenComments' | 'readComments'>): Promise<void> {
+export async function saveItem(item: Omit<SavedStory, 'savedAt' | 'lastVisit' | 'checkpointCommentId' | 'checkpointTimestamp'>): Promise<void> {
   const db = await getDB();
   const existing = await db.get('stories', item.id);
   
@@ -51,8 +55,8 @@ export async function saveItem(item: Omit<SavedStory, 'savedAt' | 'lastVisit' | 
       ...item,
       savedAt: Date.now(),
       lastVisit: Date.now(),
-      seenComments: [],
-      readComments: [],
+      checkpointCommentId: null,
+      checkpointTimestamp: null,
     });
   }
 }
@@ -79,59 +83,48 @@ export async function isItemSaved(storyId: string): Promise<boolean> {
   return !!item;
 }
 
-export async function updateComments(
+export async function updateCheckpoint(
   storyId: string,
-  seenCommentIds: string[],
-  readCommentIds: string[],
+  checkpointCommentId: string,
   totalComments: number
 ): Promise<void> {
   const db = await getDB();
   const item = await db.get('stories', storyId);
   if (!item) return;
 
-  // Merge with existing - use Set to dedupe
-  const seenSet = new Set([...item.seenComments, ...seenCommentIds]);
-  const readSet = new Set([...item.readComments, ...readCommentIds]);
-
   await db.put('stories', {
     ...item,
-    seenComments: Array.from(seenSet),
-    readComments: Array.from(readSet),
+    checkpointCommentId,
+    checkpointTimestamp: Date.now(),
     totalComments,
     lastVisit: Date.now(),
   });
 }
 
 export async function getProgress(storyId: string): Promise<{
-  seenComments: Set<string>;
-  readComments: Set<string>;
+  checkpointCommentId: string | null;
+  checkpointTimestamp: number | null;
   totalComments: number;
-  readProgress: number;
 } | null> {
   const db = await getDB();
   const item = await db.get('stories', storyId);
   if (!item) return null;
 
-  const readProgress = item.totalComments > 0
-    ? Math.round((item.readComments.length / item.totalComments) * 100)
-    : 0;
-
   return {
-    seenComments: new Set(item.seenComments),
-    readComments: new Set(item.readComments),
+    checkpointCommentId: item.checkpointCommentId,
+    checkpointTimestamp: item.checkpointTimestamp,
     totalComments: item.totalComments,
-    readProgress,
   };
 }
 
 export async function exportData(): Promise<string> {
   const items = await getItems();
-  return JSON.stringify({ version: 1, stories: items }, null, 2);
+  return JSON.stringify({ version: 2, stories: items }, null, 2);
 }
 
 export async function importData(json: string): Promise<number> {
   const data = JSON.parse(json);
-  if (data.version !== 1 || !Array.isArray(data.stories)) {
+  if (!data.version || !Array.isArray(data.stories)) {
     throw new Error('Invalid backup format');
   }
   
@@ -139,7 +132,19 @@ export async function importData(json: string): Promise<number> {
   let imported = 0;
   
   for (const story of data.stories) {
-    await db.put('stories', story);
+    // Handle v1 format migration
+    const migrated: SavedStory = {
+      id: story.id,
+      title: story.title,
+      url: story.url,
+      hnUrl: story.hnUrl,
+      savedAt: story.savedAt,
+      lastVisit: story.lastVisit,
+      totalComments: story.totalComments || 0,
+      checkpointCommentId: story.checkpointCommentId || null,
+      checkpointTimestamp: story.checkpointTimestamp || null,
+    };
+    await db.put('stories', migrated);
     imported++;
   }
   

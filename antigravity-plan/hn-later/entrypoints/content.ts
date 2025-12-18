@@ -1,4 +1,4 @@
-import { saveItem, removeItem, isItemSaved, getItem, updateComments, getProgress } from '@/lib/storage';
+import { saveItem, removeItem, isItemSaved, getItem, updateCheckpoint, getProgress } from '@/lib/storageApi';
 import './content-styles.css';
 
 export default defineContentScript({
@@ -8,66 +8,77 @@ export default defineContentScript({
     const storyId = new URLSearchParams(window.location.search).get('id');
 
     if (isItemPage && storyId) {
-      initCommentTracking(storyId);
+      initItemPage(storyId);
     }
 
-    initSaveButtons();
+    initSaveLinks();
   },
 });
 
 // ============================================
-// SAVE BUTTONS
+// SAVE LINKS (HN native style)
 // ============================================
 
-async function initSaveButtons() {
-  // Find all story rows on the page
+async function initSaveLinks() {
+  // Find all story rows on the page (listing pages)
   const storyRows = document.querySelectorAll<HTMLTableRowElement>('tr.athing:not(.comtr)');
 
   for (const row of storyRows) {
     const id = row.id;
     if (!id) continue;
 
-    const titleCell = row.querySelector('td.title:last-child');
-    const titleLink = titleCell?.querySelector<HTMLAnchorElement>('a.titleline > a, span.titleline > a');
-    if (!titleCell || !titleLink) continue;
+    const subtextRow = row.nextElementSibling;
+    const subtext = subtextRow?.querySelector('td.subtext');
+    if (!subtext) continue;
 
-    // Create save button
-    const btn = document.createElement('button');
-    btn.className = 'hn-later-save-btn';
-    btn.dataset.storyId = id;
+    // Find the comments link
+    const links = subtext.querySelectorAll('a');
+    const commentsLink = Array.from(links).find(a => a.href.includes('item?id='));
+    if (!commentsLink) continue;
+
+    // Create save link
+    const saveLink = document.createElement('a');
+    saveLink.href = '#';
+    saveLink.className = 'hn-later-save-link';
+    saveLink.dataset.storyId = id;
 
     const isSaved = await isItemSaved(id);
-    btn.classList.toggle('saved', isSaved);
-    btn.textContent = isSaved ? '📌' : '📍';
-    btn.title = isSaved ? 'Remove from Read Later' : 'Save for Later';
+    updateSaveLinkState(saveLink, isSaved);
 
-    btn.addEventListener('click', async (e) => {
+    saveLink.addEventListener('click', async (e) => {
       e.preventDefault();
-      e.stopPropagation();
-      await toggleSave(btn, titleLink);
+      await toggleSaveFromListing(saveLink, row);
     });
 
-    // Insert before title
-    titleCell.insertBefore(btn, titleCell.firstChild);
+    // Insert after comments link with separator
+    const separator = document.createTextNode(' | ');
+    commentsLink.after(separator, saveLink);
   }
 }
 
-async function toggleSave(btn: HTMLButtonElement, titleLink: HTMLAnchorElement) {
-  const storyId = btn.dataset.storyId!;
-  const isSaved = btn.classList.contains('saved');
+function updateSaveLinkState(link: HTMLAnchorElement, isSaved: boolean) {
+  link.textContent = isSaved ? 'saved ✓' : 'save';
+  link.classList.toggle('saved', isSaved);
+}
+
+async function toggleSaveFromListing(link: HTMLAnchorElement, row: HTMLTableRowElement) {
+  const storyId = link.dataset.storyId!;
+  const isSaved = link.classList.contains('saved');
 
   if (isSaved) {
     await removeItem(storyId);
-    btn.classList.remove('saved');
-    btn.textContent = '📍';
-    btn.title = 'Save for Later';
+    updateSaveLinkState(link, false);
   } else {
+    const titleCell = row.querySelector('td.title:last-child');
+    const titleLink = titleCell?.querySelector<HTMLAnchorElement>('a.titleline > a, span.titleline > a');
+    if (!titleLink) return;
+
     const title = titleLink.textContent || 'Untitled';
     const url = titleLink.href;
     const hnUrl = `https://news.ycombinator.com/item?id=${storyId}`;
 
     // Get comment count from subtext
-    const subtextRow = document.getElementById(storyId)?.nextElementSibling;
+    const subtextRow = row.nextElementSibling;
     const commentLink = subtextRow?.querySelector<HTMLAnchorElement>('a[href*="item?id="]');
     const commentText = commentLink?.textContent || '';
     const commentMatch = commentText.match(/(\d+)\s*comment/);
@@ -80,119 +91,143 @@ async function toggleSave(btn: HTMLButtonElement, titleLink: HTMLAnchorElement) 
       hnUrl,
       totalComments,
     });
-    btn.classList.add('saved');
-    btn.textContent = '📌';
-    btn.title = 'Remove from Read Later';
+    updateSaveLinkState(link, true);
   }
+}
 
-  // Update badge count
-  const items = await (await import('@/lib/storage')).getItems();
-  await browser.storage.local.set({ itemCount: items.length });
+// ============================================
+// ITEM PAGE (comments page)
+// ============================================
+
+async function initItemPage(storyId: string) {
+  // Add save link to item page
+  await addItemPageSaveLink(storyId);
+
+  // Check if this story is saved
+  const storyData = await getItem(storyId);
+  if (storyData) {
+    initCommentTracking(storyId, storyData.checkpointTimestamp);
+  }
+}
+
+async function addItemPageSaveLink(storyId: string) {
+  const subtext = document.querySelector('td.subtext');
+  if (!subtext) return;
+
+  const links = subtext.querySelectorAll('a');
+  const lastLink = links[links.length - 1];
+  if (!lastLink) return;
+
+  const saveLink = document.createElement('a');
+  saveLink.href = '#';
+  saveLink.className = 'hn-later-save-link';
+  saveLink.dataset.storyId = storyId;
+
+  const isSaved = await isItemSaved(storyId);
+  updateSaveLinkState(saveLink, isSaved);
+
+  saveLink.addEventListener('click', async (e) => {
+    e.preventDefault();
+    await toggleSaveFromItemPage(saveLink, storyId);
+  });
+
+  const separator = document.createTextNode(' | ');
+  lastLink.after(separator, saveLink);
+}
+
+async function toggleSaveFromItemPage(link: HTMLAnchorElement, storyId: string) {
+  const isSaved = link.classList.contains('saved');
+
+  if (isSaved) {
+    await removeItem(storyId);
+    updateSaveLinkState(link, false);
+    removeTrackingUI();
+  } else {
+    const titleEl = document.querySelector('.titleline > a, .storylink') as HTMLAnchorElement;
+    const title = titleEl?.textContent || 'Untitled';
+    const url = titleEl?.href || window.location.href;
+    const hnUrl = window.location.href;
+
+    const comments = document.querySelectorAll<HTMLTableRowElement>('tr.athing.comtr');
+    const totalComments = comments.length;
+
+    await saveItem({
+      id: storyId,
+      title,
+      url,
+      hnUrl,
+      totalComments,
+    });
+    updateSaveLinkState(link, true);
+
+    // Start tracking immediately (no refresh needed)
+    initCommentTracking(storyId, null);
+  }
+}
+
+function removeTrackingUI() {
+  document.querySelector('.hn-later-scrollbar')?.remove();
+  document.querySelector('.hn-later-buttons')?.remove();
+  document.querySelectorAll('.hn-later-new-label').forEach(el => el.remove());
 }
 
 // ============================================
 // COMMENT TRACKING
 // ============================================
 
-async function initCommentTracking(storyId: string) {
-  // Check if this story is saved
-  const storyData = await getItem(storyId);
-  if (!storyData) return; // Only track saved stories
-
-  // Get all comment elements
+async function initCommentTracking(storyId: string, checkpointTimestamp: number | null) {
   const comments = document.querySelectorAll<HTMLTableRowElement>('tr.athing.comtr');
   if (comments.length === 0) return;
 
   // Get existing progress
   const progress = await getProgress(storyId);
-  const seenSet = progress?.seenComments || new Set<string>();
-  const readSet = progress?.readComments || new Set<string>();
+  const checkpointId = progress?.checkpointCommentId ?? null;
 
-  // Mark already-read comments
+  // Mark new comments (posted after last checkpoint)
+  if (checkpointTimestamp) {
+    markNewComments(comments, checkpointTimestamp);
+  }
+
+  // Create UI elements
+  createScrollbarMarkers(comments, checkpointId);
+  createFloatingButtons(storyId, comments);
+
+  // Handle #hn-later-continue in URL (from popup "Continue" button)
+  if (window.location.hash === '#hn-later-continue' && checkpointId) {
+    const checkpointEl = document.getElementById(checkpointId);
+    if (checkpointEl) {
+      checkpointEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }
+}
+
+function markNewComments(comments: NodeListOf<HTMLTableRowElement>, checkpointTimestamp: number) {
   comments.forEach((comment) => {
-    const commentId = comment.id;
-    if (readSet.has(commentId)) {
-      comment.classList.add('hn-later-read');
-    } else if (!seenSet.has(commentId)) {
+    // Try to get comment timestamp from the "X hours ago" link
+    const ageLink = comment.querySelector('.age a');
+    if (!ageLink) return;
+
+    // HN shows relative time, but the title attribute has the absolute timestamp
+    const titleAttr = ageLink.getAttribute('title');
+    if (!titleAttr) return;
+
+    // Parse timestamp (format: "2024-01-15T12:30:00")
+    const commentTime = new Date(titleAttr).getTime();
+    
+    if (commentTime > checkpointTimestamp) {
+      // This comment is new since last visit
+      const label = document.createElement('span');
+      label.className = 'hn-later-new-label';
+      label.textContent = '[NEW]';
+      ageLink.after(label);
       comment.classList.add('hn-later-new');
     }
   });
-
-  // Create scrollbar markers
-  createScrollbarMarkers(comments, seenSet, readSet);
-
-  // Create jump button
-  createJumpButton(comments, readSet);
-
-  // Handle #hn-later-unread in URL
-  if (window.location.hash === '#hn-later-unread') {
-    scrollToFirstUnread(comments, readSet);
-    history.replaceState(null, '', window.location.pathname + window.location.search);
-  }
-
-  // Track visibility with IntersectionObserver
-  const newlySeen: string[] = [];
-  const newlyRead: string[] = [];
-  const readTimers = new Map<string, number>();
-
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        const commentId = (entry.target as HTMLElement).id;
-
-        if (entry.isIntersecting) {
-          // Mark as seen immediately
-          if (!seenSet.has(commentId)) {
-            seenSet.add(commentId);
-            newlySeen.push(commentId);
-            entry.target.classList.remove('hn-later-new');
-          }
-
-          // Start read timer (500ms visibility = read)
-          if (!readSet.has(commentId) && !readTimers.has(commentId)) {
-            const timer = window.setTimeout(() => {
-              readSet.add(commentId);
-              newlyRead.push(commentId);
-              entry.target.classList.add('hn-later-read');
-              readTimers.delete(commentId);
-              updateMarker(commentId, 'read');
-            }, 500);
-            readTimers.set(commentId, timer);
-          }
-        } else {
-          // Cancel read timer if scrolled away
-          const timer = readTimers.get(commentId);
-          if (timer) {
-            clearTimeout(timer);
-            readTimers.delete(commentId);
-          }
-        }
-      });
-    },
-    { threshold: 0.5 }
-  );
-
-  comments.forEach((comment) => observer.observe(comment));
-
-  // Save progress on page unload
-  window.addEventListener('beforeunload', () => {
-    if (newlySeen.length > 0 || newlyRead.length > 0) {
-      updateComments(storyId, newlySeen, newlyRead, comments.length);
-    }
-  });
-
-  // Also save periodically
-  setInterval(() => {
-    if (newlySeen.length > 0 || newlyRead.length > 0) {
-      updateComments(storyId, [...newlySeen], [...newlyRead], comments.length);
-      newlySeen.length = 0;
-      newlyRead.length = 0;
-    }
-  }, 5000);
 }
 
 // ============================================
-// SCROLLBAR MARKERS
+// SCROLLBAR MARKERS (Discourse-style)
 // ============================================
 
 let markersContainer: HTMLDivElement | null = null;
@@ -200,13 +235,18 @@ const markerMap = new Map<string, HTMLDivElement>();
 
 function createScrollbarMarkers(
   comments: NodeListOf<HTMLTableRowElement>,
-  seenSet: Set<string>,
-  readSet: Set<string>
+  checkpointId: string | null
 ) {
   markersContainer = document.createElement('div');
   markersContainer.className = 'hn-later-scrollbar';
 
+  // Add viewport indicator
+  const viewport = document.createElement('div');
+  viewport.className = 'hn-later-viewport';
+  markersContainer.appendChild(viewport);
+
   const docHeight = document.documentElement.scrollHeight;
+  let foundCheckpoint = checkpointId === null; // If no checkpoint, all are "unread"
 
   comments.forEach((comment) => {
     const commentId = comment.id;
@@ -217,12 +257,16 @@ function createScrollbarMarkers(
     marker.className = 'hn-later-marker';
     marker.dataset.commentId = commentId;
 
-    if (readSet.has(commentId)) {
-      marker.classList.add('read');
-    } else if (!seenSet.has(commentId)) {
+    if (comment.classList.contains('hn-later-new')) {
       marker.classList.add('new');
+    } else if (!foundCheckpoint) {
+      marker.classList.add('read');
     } else {
       marker.classList.add('unread');
+    }
+
+    if (commentId === checkpointId) {
+      foundCheckpoint = true;
     }
 
     marker.style.top = `${top * 100}%`;
@@ -235,56 +279,149 @@ function createScrollbarMarkers(
   });
 
   document.body.appendChild(markersContainer);
-}
 
-function updateMarker(commentId: string, status: 'read' | 'seen') {
-  const marker = markerMap.get(commentId);
-  if (marker) {
-    marker.classList.remove('new', 'unread');
-    marker.classList.add(status === 'read' ? 'read' : 'unread');
-  }
-}
-
-// ============================================
-// JUMP TO UNREAD BUTTON
-// ============================================
-
-function createJumpButton(comments: NodeListOf<HTMLTableRowElement>, readSet: Set<string>) {
-  const btn = document.createElement('button');
-  btn.className = 'hn-later-jump-btn';
-  btn.innerHTML = '⬇️ Next Unread';
-  btn.title = 'Jump to next unread comment';
-
-  btn.addEventListener('click', () => {
-    scrollToFirstUnread(comments, readSet);
-  });
-
-  document.body.appendChild(btn);
-
-  // Update visibility based on scroll position
-  const updateJumpButton = () => {
-    const hasUnreadBelow = Array.from(comments).some((comment) => {
-      if (readSet.has(comment.id)) return false;
-      const rect = comment.getBoundingClientRect();
-      return rect.top > window.innerHeight;
-    });
-    btn.style.display = hasUnreadBelow ? 'block' : 'none';
+  // Update viewport indicator on scroll
+  const updateViewport = () => {
+    const scrollTop = window.scrollY;
+    const viewportHeight = window.innerHeight;
+    const docHeight = document.documentElement.scrollHeight;
+    
+    viewport.style.top = `${(scrollTop / docHeight) * 100}%`;
+    viewport.style.height = `${(viewportHeight / docHeight) * 100}%`;
   };
 
-  window.addEventListener('scroll', updateJumpButton, { passive: true });
-  updateJumpButton();
+  window.addEventListener('scroll', updateViewport, { passive: true });
+  updateViewport();
 }
 
-function scrollToFirstUnread(comments: NodeListOf<HTMLTableRowElement>, readSet: Set<string>) {
+// ============================================
+// FLOATING BUTTONS
+// ============================================
+
+function createFloatingButtons(storyId: string, comments: NodeListOf<HTMLTableRowElement>) {
+  const container = document.createElement('div');
+  container.className = 'hn-later-buttons';
+
+  // Checkpoint button
+  const checkpointBtn = document.createElement('button');
+  checkpointBtn.className = 'hn-later-btn checkpoint';
+  checkpointBtn.innerHTML = '📍 Checkpoint';
+  checkpointBtn.title = 'Save reading position';
+  checkpointBtn.addEventListener('click', () => setCheckpoint(storyId, comments));
+
+  // Collapse button
+  const collapseBtn = document.createElement('button');
+  collapseBtn.className = 'hn-later-btn collapse';
+  collapseBtn.innerHTML = '🔽 Collapse';
+  collapseBtn.title = 'Collapse current thread';
+  collapseBtn.addEventListener('click', () => collapseCurrentThread());
+
+  // Next Topic button
+  const nextTopicBtn = document.createElement('button');
+  nextTopicBtn.className = 'hn-later-btn next-topic';
+  nextTopicBtn.innerHTML = '⏭️ Next Topic';
+  nextTopicBtn.title = 'Jump to next top-level comment';
+  nextTopicBtn.addEventListener('click', () => scrollToNextTopic(comments));
+
+  container.appendChild(checkpointBtn);
+  container.appendChild(collapseBtn);
+  container.appendChild(nextTopicBtn);
+  document.body.appendChild(container);
+}
+
+async function setCheckpoint(storyId: string, comments: NodeListOf<HTMLTableRowElement>) {
+  // Find the comment currently at top of viewport
+  let topComment: HTMLTableRowElement | null = null;
+  
   for (const comment of comments) {
-    if (!readSet.has(comment.id)) {
+    const rect = comment.getBoundingClientRect();
+    if (rect.top >= 0 && rect.top < window.innerHeight / 2) {
+      topComment = comment;
+      break;
+    }
+  }
+
+  if (!topComment) {
+    // Fallback to first visible
+    for (const comment of comments) {
       const rect = comment.getBoundingClientRect();
-      if (rect.top > window.innerHeight * 0.3 || rect.top < 0) {
-        comment.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        comment.classList.add('hn-later-highlight');
-        setTimeout(() => comment.classList.remove('hn-later-highlight'), 2000);
+      if (rect.bottom > 0) {
+        topComment = comment;
         break;
       }
     }
   }
+
+  if (topComment) {
+    await updateCheckpoint(storyId, topComment.id, comments.length);
+    
+    // Show confirmation
+    showToast('📍 Checkpoint saved!');
+    
+    // Update markers to show read/unread split
+    let foundCheckpoint = false;
+    comments.forEach((comment) => {
+      const marker = markerMap.get(comment.id);
+      if (marker && !marker.classList.contains('new')) {
+        if (!foundCheckpoint) {
+          marker.classList.remove('unread');
+          marker.classList.add('read');
+        } else {
+          marker.classList.remove('read');
+          marker.classList.add('unread');
+        }
+      }
+      if (comment.id === topComment!.id) {
+        foundCheckpoint = true;
+      }
+    });
+  }
+}
+
+function collapseCurrentThread() {
+  // Find the comment currently in viewport
+  const comments = document.querySelectorAll<HTMLTableRowElement>('tr.athing.comtr');
+  
+  for (const comment of comments) {
+    const rect = comment.getBoundingClientRect();
+    if (rect.top >= 0 && rect.top < window.innerHeight / 2) {
+      // Find the toggle link ([-] or [+])
+      const toggleLink = comment.querySelector<HTMLAnchorElement>('.togg');
+      if (toggleLink && toggleLink.textContent?.includes('[')) {
+        toggleLink.click();
+      }
+      break;
+    }
+  }
+}
+
+function scrollToNextTopic(comments: NodeListOf<HTMLTableRowElement>) {
+  const currentScrollTop = window.scrollY;
+
+  for (const comment of comments) {
+    // Check if it's a top-level comment (indent = 0)
+    const indent = comment.querySelector('.ind img');
+    const indentWidth = indent ? parseInt(indent.getAttribute('width') || '0', 10) : 0;
+    
+    if (indentWidth === 0) {
+      const rect = comment.getBoundingClientRect();
+      // Find one that's below current viewport position
+      if (rect.top + window.scrollY > currentScrollTop + 100) {
+        comment.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        break;
+      }
+    }
+  }
+}
+
+function showToast(message: string) {
+  let toast = document.querySelector<HTMLDivElement>('.hn-later-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.className = 'hn-later-toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add('show');
+  setTimeout(() => toast?.classList.remove('show'), 2000);
 }

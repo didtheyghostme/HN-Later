@@ -100,41 +100,13 @@ header h1 {
   margin-bottom: 8px;
 }
 
-.progress-container {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.progress-bar {
-  flex: 1;
-  height: 6px;
-  background: #e0e0e0;
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #ff6600, #ff8533);
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
-
-.progress-text {
+.checkpoint-status {
+  color: #0066ff;
   font-weight: 500;
-  min-width: 32px;
-  text-align: right;
 }
 
-.new-badge {
-  background: #0066ff;
-  color: white;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 600;
+.comment-count {
+  color: #888;
 }
 
 .story-actions {

@@ -1,9 +1,33 @@
-import { getItems, removeItem, exportData, importData, type SavedStory } from '@/lib/storage';
+import type { SavedStory } from '@/lib/storage';
 
 const listEl = document.getElementById('list')!;
 const emptyEl = document.getElementById('empty')!;
 const exportBtn = document.getElementById('export-btn')!;
 const importInput = document.getElementById('import-input') as HTMLInputElement;
+
+// Storage API via message passing
+async function getItems(): Promise<SavedStory[]> {
+  const response = await browser.runtime.sendMessage({ type: 'GET_ITEMS' });
+  if (!response.success) throw new Error(response.error);
+  return response.items;
+}
+
+async function removeItem(storyId: string): Promise<void> {
+  const response = await browser.runtime.sendMessage({ type: 'REMOVE_ITEM', storyId });
+  if (!response.success) throw new Error(response.error);
+}
+
+async function exportData(): Promise<string> {
+  const response = await browser.runtime.sendMessage({ type: 'EXPORT_DATA' });
+  if (!response.success) throw new Error(response.error);
+  return response.data;
+}
+
+async function importData(json: string): Promise<number> {
+  const response = await browser.runtime.sendMessage({ type: 'IMPORT_DATA', json });
+  if (!response.success) throw new Error(response.error);
+  return response.count;
+}
 
 function formatTimeAgo(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -16,19 +40,15 @@ function formatTimeAgo(timestamp: number): string {
   return `${days}d ago`;
 }
 
-function calculateProgress(story: SavedStory): number {
-  if (story.totalComments === 0) return 0;
-  return Math.round((story.readComments.length / story.totalComments) * 100);
-}
-
-function countNewComments(story: SavedStory): number {
-  // New = total - seen
-  return Math.max(0, story.totalComments - story.seenComments.length);
+function getCheckpointStatus(story: SavedStory): string {
+  if (story.checkpointCommentId && story.checkpointTimestamp) {
+    return `📍 ${formatTimeAgo(story.checkpointTimestamp)}`;
+  }
+  return 'Not started';
 }
 
 function renderStory(story: SavedStory): HTMLElement {
-  const progress = calculateProgress(story);
-  const newCount = countNewComments(story);
+  const checkpointStatus = getCheckpointStatus(story);
   
   const div = document.createElement('div');
   div.className = 'story-item';
@@ -37,13 +57,8 @@ function renderStory(story: SavedStory): HTMLElement {
       <a href="${story.url}" target="_blank" title="${story.title}">${story.title}</a>
     </div>
     <div class="story-meta">
-      <div class="progress-container">
-        <div class="progress-bar">
-          <div class="progress-fill" style="width: ${progress}%"></div>
-        </div>
-        <span class="progress-text">${progress}%</span>
-      </div>
-      ${newCount > 0 ? `<span class="new-badge">${newCount} new</span>` : ''}
+      <span class="checkpoint-status">${checkpointStatus}</span>
+      <span class="comment-count">${story.totalComments} comments</span>
       <span>${formatTimeAgo(story.savedAt)}</span>
     </div>
     <div class="story-actions">
@@ -66,7 +81,6 @@ function renderStory(story: SavedStory): HTMLElement {
   div.querySelector('.remove-btn')!.addEventListener('click', async (e) => {
     const id = (e.currentTarget as HTMLElement).dataset.id!;
     await removeItem(id);
-    await updateItemCount();
     div.remove();
     checkEmpty();
   });
@@ -78,11 +92,6 @@ function checkEmpty() {
   const hasItems = listEl.children.length > 0;
   listEl.hidden = !hasItems;
   emptyEl.hidden = hasItems;
-}
-
-async function updateItemCount() {
-  const items = await getItems();
-  await browser.storage.local.set({ itemCount: items.length });
 }
 
 async function render() {
@@ -134,7 +143,6 @@ importInput.addEventListener('change', async (e) => {
   try {
     const text = await file.text();
     const count = await importData(text);
-    await updateItemCount();
     await render();
     showToast(`Imported ${count} stories!`);
   } catch (e) {

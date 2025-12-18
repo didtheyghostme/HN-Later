@@ -11,6 +11,11 @@ export default defineContentScript({
       initItemPage(storyId);
     }
 
+    // Add collapse buttons to all comments on any item page
+    if (isItemPage) {
+      initCollapseButtons();
+    }
+
     initSaveLinks();
   },
 });
@@ -309,13 +314,6 @@ function createFloatingButtons(storyId: string, comments: NodeListOf<HTMLTableRo
   checkpointBtn.title = 'Save reading position';
   checkpointBtn.addEventListener('click', () => setCheckpoint(storyId, comments));
 
-  // Collapse button
-  const collapseBtn = document.createElement('button');
-  collapseBtn.className = 'hn-later-btn collapse';
-  collapseBtn.innerHTML = '🔽 Collapse';
-  collapseBtn.title = 'Collapse current thread';
-  collapseBtn.addEventListener('click', () => collapseCurrentThread());
-
   // Next Topic button
   const nextTopicBtn = document.createElement('button');
   nextTopicBtn.className = 'hn-later-btn next-topic';
@@ -324,9 +322,44 @@ function createFloatingButtons(storyId: string, comments: NodeListOf<HTMLTableRo
   nextTopicBtn.addEventListener('click', () => scrollToNextTopic(comments));
 
   container.appendChild(checkpointBtn);
-  container.appendChild(collapseBtn);
   container.appendChild(nextTopicBtn);
   document.body.appendChild(container);
+}
+
+// ============================================
+// PER-COMMENT COLLAPSE BUTTONS
+// ============================================
+
+function initCollapseButtons() {
+  const comments = document.querySelectorAll<HTMLTableRowElement>('tr.athing.comtr');
+  
+  comments.forEach((comment) => {
+    // Make the row position:relative so we can absolutely position the button
+    comment.style.position = 'relative';
+    
+    // Create collapse button
+    const collapseBtn = document.createElement('button');
+    collapseBtn.className = 'hn-later-collapse-btn';
+    collapseBtn.textContent = '▼';
+    collapseBtn.title = 'Collapse thread';
+    
+    collapseBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Find and click HN's native toggle
+      const toggleLink = comment.querySelector<HTMLAnchorElement>('.togg');
+      if (toggleLink) {
+        toggleLink.click();
+        // Update button icon based on collapsed state
+        const isCollapsed = toggleLink.textContent?.includes('+');
+        collapseBtn.textContent = isCollapsed ? '▲' : '▼';
+      }
+    });
+    
+    // Append directly to the row
+    comment.appendChild(collapseBtn);
+  });
 }
 
 async function setCheckpoint(storyId: string, comments: NodeListOf<HTMLTableRowElement>) {
@@ -375,23 +408,6 @@ async function setCheckpoint(storyId: string, comments: NodeListOf<HTMLTableRowE
         foundCheckpoint = true;
       }
     });
-  }
-}
-
-function collapseCurrentThread() {
-  // Find the comment currently in viewport
-  const comments = document.querySelectorAll<HTMLTableRowElement>('tr.athing.comtr');
-  
-  for (const comment of comments) {
-    const rect = comment.getBoundingClientRect();
-    if (rect.top >= 0 && rect.top < window.innerHeight / 2) {
-      // Find the toggle link ([-] or [+])
-      const toggleLink = comment.querySelector<HTMLAnchorElement>('.togg');
-      if (toggleLink && toggleLink.textContent?.includes('[')) {
-        toggleLink.click();
-      }
-      break;
-    }
   }
 }
 

@@ -1,0 +1,118 @@
+/* Save Button */
+.hn-later-save-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  margin-right: 4px;
+  border-radius: 4px;
+  transition: transform 0.15s, background 0.15s;
+  vertical-align: middle;
+}
+
+.hn-later-save-btn:hover {
+  background: rgba(255, 102, 0, 0.1);
+  transform: scale(1.1);
+}
+
+.hn-later-save-btn.saved {
+  color: #ff6600;
+}
+
+/* Comment States */
+tr.athing.comtr.hn-later-read {
+  opacity: 0.6;
+}
+
+tr.athing.comtr.hn-later-new {
+  position: relative;
+}
+
+tr.athing.comtr.hn-later-new::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #0066ff;
+  border-radius: 0 2px 2px 0;
+}
+
+tr.athing.comtr.hn-later-highlight {
+  animation: hn-later-pulse 2s ease-out;
+}
+
+@keyframes hn-later-pulse {
+  0% { background: rgba(255, 102, 0, 0.3); }
+  100% { background: transparent; }
+}
+
+/* Scrollbar Markers */
+.hn-later-scrollbar {
+  position: fixed;
+  right: 4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.hn-later-marker {
+  position: absolute;
+  right: 0;
+  width: 6px;
+  height: 4px;
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 0.15s, opacity 0.3s;
+}
+
+.hn-later-marker:hover {
+  transform: scaleX(1.5);
+}
+
+.hn-later-marker.unread {
+  background: #ff6600;
+  opacity: 0.8;
+}
+
+.hn-later-marker.new {
+  background: #0066ff;
+  opacity: 1;
+}
+
+.hn-later-marker.read {
+  background: #ccc;
+  opacity: 0.4;
+}
+
+/* Jump Button */
+.hn-later-jump-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #ff6600;
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(255, 102, 0, 0.4);
+  transition: transform 0.2s, box-shadow 0.2s;
+  z-index: 9998;
+}
+
+.hn-later-jump-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(255, 102, 0, 0.5);
+}
+
+.hn-later-jump-btn:active {
+  transform: translateY(0);
+}

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script type="module" src="http://localhost:3000/@vite/client"></script>
+<script src="http://localhost:3000/@id/virtual:wxt-html-plugins" type="module"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HN Later</title>
+    <link rel="stylesheet" href="http://localhost:3000/entrypoints/popup/style.css">  <script type="module" crossorigin="" src="/chunks/popup-BWk36kL9.js"></script>
+</head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>📚 HN Later</h1>
+        <div class="header-actions">
+          <button id="export-btn" class="icon-btn" title="Export data">⬇️</button>
+          <label class="icon-btn" title="Import data">
+            ⬆️
+            <input type="file" id="import-input" accept=".json" hidden>
+          </label>
+        </div>
+      </header>
+      
+      <div id="list" class="story-list">
+        <!-- Stories will be rendered here -->
+      </div>
+      
+      <div id="empty" class="empty-state" hidden>
+        <p>No stories saved yet.</p>
+        <p class="hint">Click the 📌 button on any HN story to save it!</p>
+      </div>
+    </div>
+    <script type="module" src="http://localhost:3000/entrypoints/popup/main.ts"></script>
+  </body>
+</html>

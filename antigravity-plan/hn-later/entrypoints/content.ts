@@ -219,27 +219,68 @@ async function initCommentTracking(storyId: string, checkpointTimestamp: number 
 }
 
 function markNewComments(comments: NodeListOf<HTMLTableRowElement>, checkpointTimestamp: number) {
-  comments.forEach((comment) => {
-    // Try to get comment timestamp from the "X hours ago" link
+  console.log('[HN-Later] markNewComments called with checkpointTimestamp:', checkpointTimestamp, new Date(checkpointTimestamp).toISOString());
+  
+  let newCount = 0;
+  comments.forEach((comment, index) => {
+    // Try multiple selectors for the age element
+    const ageSpan = comment.querySelector('.age');
     const ageLink = comment.querySelector('.age a');
-    if (!ageLink) return;
+    
+    if (!ageSpan && !ageLink) {
+      if (index < 3) console.log(`[HN-Later] Comment ${comment.id}: No .age or .age a found`);
+      return;
+    }
 
-    // HN shows relative time, but the title attribute has the absolute timestamp
-    const titleAttr = ageLink.getAttribute('title');
+    // The title attribute could be on:
+    // 1. The .age span itself
+    // 2. The a link inside .age
+    // 3. A child element like <time>
+    let titleAttr = ageSpan?.getAttribute('title') || 
+                    ageLink?.getAttribute('title');
+    
+    // Also check for a <time> element with datetime attribute
+    const timeEl = comment.querySelector('.age time');
+    if (!titleAttr && timeEl) {
+      titleAttr = timeEl.getAttribute('title') || timeEl.getAttribute('datetime');
+    }
+
+    // Debug first 5 comments
+    if (index < 5) {
+      console.log(`[HN-Later] Comment ${comment.id}: ageSpan=${!!ageSpan}, ageLink=${!!ageLink}, titleAttr="${titleAttr}"`);
+    }
+
     if (!titleAttr) return;
 
-    // Parse timestamp (format: "2024-01-15T12:30:00")
-    const commentTime = new Date(titleAttr).getTime();
+    // Parse timestamp - HN format is "2025-12-18T18:31:30 1766082690" (ISO + Unix)
+    // Split on space and use the ISO date part
+    const isoDateStr = titleAttr.split(' ')[0];
+    const commentTime = new Date(isoDateStr).getTime();
+    
+    if (isNaN(commentTime)) {
+      if (index < 3) console.log(`[HN-Later] Comment ${comment.id}: Failed to parse timestamp "${isoDateStr}" from "${titleAttr}"`);
+      return;
+    }
+    
+    if (index < 5) {
+      console.log(`[HN-Later] Comment ${comment.id}: commentTime=${commentTime} (${new Date(commentTime).toISOString()}), isNew=${commentTime > checkpointTimestamp}`);
+    }
     
     if (commentTime > checkpointTimestamp) {
       // This comment is new since last visit
+      newCount++;
       const label = document.createElement('span');
       label.className = 'hn-later-new-label';
       label.textContent = '[NEW]';
-      ageLink.after(label);
+      
+      // Insert after the age element
+      const insertAfter = ageLink || ageSpan;
+      insertAfter?.parentElement?.insertBefore(label, insertAfter.nextSibling);
       comment.classList.add('hn-later-new');
     }
   });
+  
+  console.log(`[HN-Later] Total new comments found: ${newCount}`);
 }
 
 // ============================================

@@ -50,13 +50,13 @@ export async function saveItem(item: Omit<SavedStory, 'savedAt' | 'lastVisit' | 
       lastVisit: Date.now(),
     });
   } else {
-    // Create new item
+    // Create new item - set timestamp so [NEW] labels work from first revisit
     await db.add('stories', {
       ...item,
       savedAt: Date.now(),
       lastVisit: Date.now(),
       checkpointCommentId: null,
-      checkpointTimestamp: null,
+      checkpointTimestamp: Date.now(),  // Set initial timestamp for [NEW] detection
     });
   }
 }

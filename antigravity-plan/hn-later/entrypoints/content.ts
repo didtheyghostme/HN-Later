@@ -19,6 +19,14 @@ export default defineContentScript({
     }
 
     initSaveLinks();
+
+    // Handle back/forward navigation (bfcache restoration)
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) {
+        // Page was restored from bfcache - refresh save link states
+        refreshSaveLinkStates();
+      }
+    });
   },
 });
 
@@ -75,6 +83,19 @@ async function initSaveLinks() {
 function updateSaveLinkState(link: HTMLAnchorElement, isSaved: boolean) {
   link.textContent = isSaved ? 'saved ✓' : 'save';
   link.classList.toggle('saved', isSaved);
+}
+
+async function refreshSaveLinkStates() {
+  // Find all save links and update their states
+  const saveLinks = document.querySelectorAll<HTMLAnchorElement>('.hn-later-save-link');
+  
+  for (const link of saveLinks) {
+    const storyId = link.dataset.storyId;
+    if (!storyId) continue;
+    
+    const isSaved = await isItemSaved(storyId);
+    updateSaveLinkState(link, isSaved);
+  }
 }
 
 async function toggleSaveFromListing(link: HTMLAnchorElement, row: HTMLTableRowElement) {

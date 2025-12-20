@@ -471,10 +471,17 @@ function updateCollapseButtonPositions() {
     
     const rect = comment.getBoundingClientRect();
     
-    // Always show and position the button (no viewport culling)
-    btn.style.display = 'flex';
-    btn.style.top = `${rect.top}px`;
-    btn.style.left = `${contentRight + 8}px`;
+    // Check if comment is actually visible (not hidden by HN's collapse)
+    // Hidden elements return height: 0 or have display: none parent
+    const isHidden = rect.height === 0 || comment.offsetParent === null;
+    
+    if (isHidden) {
+      btn.style.display = 'none';
+    } else {
+      btn.style.display = 'flex';
+      btn.style.top = `${rect.top}px`;
+      btn.style.left = `${contentRight + 8}px`;
+    }
   });
 }
 

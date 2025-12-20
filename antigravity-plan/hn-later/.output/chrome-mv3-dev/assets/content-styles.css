@@ -1,83 +1,126 @@
-/* Save Button */
-.hn-later-save-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  padding: 2px 6px;
-  margin-right: 4px;
-  border-radius: 4px;
-  transition: transform 0.15s, background 0.15s;
-  vertical-align: middle;
+/* Save Link Container (includes separator) */
+.hn-later-save-container {
+  opacity: 0;
+  transition: opacity 0.15s;
 }
 
-.hn-later-save-btn:hover {
-  background: rgba(255, 102, 0, 0.1);
-  transform: scale(1.1);
+.hn-later-save-link {
+  color: #828282;
+  text-decoration: none;
 }
 
-.hn-later-save-btn.saved {
+/* Show on row hover (listing pages) */
+tr.athing:hover + tr .hn-later-save-container,
+tr.athing + tr:hover .hn-later-save-container {
+  opacity: 1;
+}
+
+.hn-later-save-link:hover {
+  text-decoration: underline;
+}
+
+/* Always visible when saved */
+.hn-later-save-container:has(.saved) {
+  opacity: 1;
+}
+
+.hn-later-save-link.saved {
   color: #ff6600;
 }
 
-/* Comment States */
-tr.athing.comtr.hn-later-read {
-  opacity: 0.6;
+/* Always show on item pages (marked by extension) */
+.hn-later-item-page .hn-later-save-container {
+  opacity: 1;
 }
 
-tr.athing.comtr.hn-later-new {
-  position: relative;
-}
-
-tr.athing.comtr.hn-later-new::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
+/* NEW Label */
+.hn-later-new-label {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 4px;
   background: #0066ff;
-  border-radius: 0 2px 2px 0;
+  color: white;
+  font-size: 9px;
+  font-weight: bold;
+  border-radius: 3px;
+  vertical-align: middle;
 }
 
-tr.athing.comtr.hn-later-highlight {
-  animation: hn-later-pulse 2s ease-out;
+/* Collapse Buttons Overlay Container */
+.hn-later-collapse-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 100;
 }
 
-@keyframes hn-later-pulse {
-  0% { background: rgba(255, 102, 0, 0.3); }
-  100% { background: transparent; }
+/* Per-Comment Collapse Button */
+.hn-later-collapse-btn {
+  position: fixed;
+  display: none; /* Hidden by default, shown via JS */
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: #f6f6ef;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  color: #828282;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  pointer-events: auto; /* Re-enable clicks on buttons */
 }
 
-/* Scrollbar Markers */
+.hn-later-collapse-btn:hover {
+  background: #ff6600;
+  border-color: #ff6600;
+  color: white;
+}
+
+/* Scrollbar Markers (Discourse-style) */
 .hn-later-scrollbar {
   position: fixed;
-  right: 4px;
+  right: 0;
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: 16px;
+  background: rgba(0, 0, 0, 0.05);
   pointer-events: none;
   z-index: 9999;
 }
 
-.hn-later-marker {
+.hn-later-viewport {
   position: absolute;
   right: 0;
-  width: 6px;
-  height: 4px;
+  width: 16px;
+  background: rgba(255, 102, 0, 0.15);
+  border: 1px solid rgba(255, 102, 0, 0.3);
   border-radius: 2px;
+  pointer-events: none;
+}
+
+.hn-later-marker {
+  position: absolute;
+  right: 2px;
+  width: 12px;
+  height: 6px;
+  border-radius: 3px;
   pointer-events: auto;
   cursor: pointer;
   transition: transform 0.15s, opacity 0.3s;
 }
 
 .hn-later-marker:hover {
-  transform: scaleX(1.5);
+  transform: scaleY(1.5);
 }
 
 .hn-later-marker.unread {
   background: #ff6600;
-  opacity: 0.8;
+  opacity: 0.9;
 }
 
 .hn-later-marker.new {
@@ -87,32 +130,79 @@ tr.athing.comtr.hn-later-highlight {
 
 .hn-later-marker.read {
   background: #ccc;
-  opacity: 0.4;
+  opacity: 0.5;
 }
 
-/* Jump Button */
-.hn-later-jump-btn {
+/* Floating Buttons Container */
+.hn-later-buttons {
   position: fixed;
   bottom: 20px;
-  right: 20px;
-  background: #ff6600;
-  color: white;
-  border: none;
-  padding: 12px 20px;
-  border-radius: 24px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(255, 102, 0, 0.4);
-  transition: transform 0.2s, box-shadow 0.2s;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   z-index: 9998;
 }
 
-.hn-later-jump-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(255, 102, 0, 0.5);
+.hn-later-btn {
+  background: #ff6600;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+  white-space: nowrap;
 }
 
-.hn-later-jump-btn:active {
+.hn-later-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.hn-later-btn:active {
   transform: translateY(0);
+}
+
+.hn-later-btn.checkpoint {
+  background: #0066ff;
+}
+
+.hn-later-btn.next-topic {
+  background: #ff6600;
+}
+
+/* Toast Notification */
+.hn-later-toast {
+  position: fixed;
+  bottom: 100px;
+  right: 24px;
+  background: #333;
+  color: white;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.3s, transform 0.3s;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.hn-later-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Highlight animation for scrolled-to comments */
+tr.athing.comtr.hn-later-highlight {
+  animation: hn-later-pulse 2s ease-out;
+}
+
+@keyframes hn-later-pulse {
+  0% { background: rgba(255, 102, 0, 0.3); }
+  100% { background: transparent; }
 }

@@ -400,21 +400,31 @@ function createFloatingButtons(storyId: string, comments: NodeListOf<HTMLTableRo
 }
 
 // ============================================
-// PER-COMMENT COLLAPSE BUTTONS
+// PER-COMMENT COLLAPSE BUTTONS (Fixed Overlay)
 // ============================================
+
+let collapseOverlay: HTMLDivElement | null = null;
+const collapseBtnMap = new Map<string, HTMLButtonElement>();
 
 function initCollapseButtons() {
   const comments = document.querySelectorAll<HTMLTableRowElement>('tr.athing.comtr');
+  if (comments.length === 0) return;
+  
+  // Create fixed overlay container (pointer-events: none so it doesn't block clicks)
+  collapseOverlay = document.createElement('div');
+  collapseOverlay.className = 'hn-later-collapse-overlay';
+  document.body.appendChild(collapseOverlay);
   
   comments.forEach((comment) => {
-    // Make the row position:relative so we can absolutely position the button
-    comment.style.position = 'relative';
+    const commentId = comment.id;
+    if (!commentId) return;
     
     // Create collapse button
     const collapseBtn = document.createElement('button');
     collapseBtn.className = 'hn-later-collapse-btn';
     collapseBtn.textContent = '▼';
     collapseBtn.title = 'Collapse thread';
+    collapseBtn.dataset.commentId = commentId;
     
     collapseBtn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -427,11 +437,44 @@ function initCollapseButtons() {
         // Update button icon based on collapsed state
         const isCollapsed = toggleLink.textContent?.includes('+');
         collapseBtn.textContent = isCollapsed ? '▲' : '▼';
+        
+        // Immediately update all button positions after collapse/expand
+        // Use requestAnimationFrame to ensure DOM has updated
+        requestAnimationFrame(() => updateCollapseButtonPositions());
       }
     });
     
-    // Append directly to the row
-    comment.appendChild(collapseBtn);
+    collapseOverlay!.appendChild(collapseBtn);
+    collapseBtnMap.set(commentId, collapseBtn);
+  });
+  
+  // Position buttons and update on scroll/resize
+  updateCollapseButtonPositions();
+  window.addEventListener('scroll', updateCollapseButtonPositions, { passive: true });
+  window.addEventListener('resize', updateCollapseButtonPositions, { passive: true });
+}
+
+function updateCollapseButtonPositions() {
+  if (!collapseOverlay) return;
+  
+  // Find stable reference: HN's main content table (doesn't change width when collapsing)
+  const mainTable = document.querySelector<HTMLTableElement>('#hnmain') || 
+                    document.querySelector<HTMLTableElement>('table[width="85%"]');
+  const contentRight = mainTable ? mainTable.getBoundingClientRect().right : window.innerWidth - 100;
+  
+  collapseBtnMap.forEach((btn, commentId) => {
+    const comment = document.getElementById(commentId);
+    if (!comment) {
+      btn.style.display = 'none';
+      return;
+    }
+    
+    const rect = comment.getBoundingClientRect();
+    
+    // Always show and position the button (no viewport culling)
+    btn.style.display = 'flex';
+    btn.style.top = `${rect.top}px`;
+    btn.style.left = `${contentRight + 8}px`;
   });
 }
 

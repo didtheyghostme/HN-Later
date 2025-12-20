@@ -46,12 +46,21 @@ tr.athing + tr:hover .hn-later-save-container {
   vertical-align: middle;
 }
 
+/* Collapse Buttons Overlay Container */
+.hn-later-collapse-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+
 /* Per-Comment Collapse Button */
 .hn-later-collapse-btn {
-  position: absolute;
-  top: 0;
-  right: 0;
-  display: inline-flex;
+  position: fixed;
+  display: none; /* Hidden by default, shown via JS */
   align-items: center;
   justify-content: center;
   width: 24px;
@@ -62,8 +71,8 @@ tr.athing + tr:hover .hn-later-save-container {
   color: #828282;
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
-  z-index: 10;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  pointer-events: auto; /* Re-enable clicks on buttons */
 }
 
 .hn-later-collapse-btn:hover {

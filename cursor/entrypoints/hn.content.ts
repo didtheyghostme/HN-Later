@@ -243,7 +243,10 @@ async function initItemPage(url: URL) {
   const storyId = getStoryIdFromItemUrl(url);
   if (!storyId) return;
 
-  const itemUrl = getItemUrl(storyId);
+  // Snapshot as definite string for use in closures (TS doesn't carry narrowing into callbacks)
+  const storyIdStr: string = storyId;
+
+  const itemUrl = getItemUrl(storyIdStr);
   const title = getItemTitleFromDom();
 
   const commentRows = getCommentRows();
@@ -252,7 +255,7 @@ async function initItemPage(url: URL) {
   if (!firstCommentRow) return;
 
   // Determine saved state.
-  let thread: ThreadRecord | undefined = await getThread(storyId);
+  let thread: ThreadRecord | undefined = await getThread(storyIdStr);
 
   // Inject per-comment mark-to-here controls.
   for (const row of commentRows) {
@@ -273,8 +276,8 @@ async function initItemPage(url: URL) {
       e.stopPropagation();
 
       // Marking progress implies you care about returning: auto-save the thread.
-      thread = await upsertThread({ id: storyId, title, url: itemUrl });
-      await setLastReadCommentId(storyId, commentId);
+      thread = await upsertThread({ id: storyIdStr, title, url: itemUrl });
+      await setLastReadCommentId(storyIdStr, commentId);
       thread = { ...thread, lastReadCommentId: commentId };
 
       const stats = computeStats({
@@ -282,7 +285,7 @@ async function initItemPage(url: URL) {
         lastReadCommentId: commentId,
         newCount: thread.cachedStats?.newCount
       });
-      await setCachedStats({ storyId, stats });
+      await setCachedStats({ storyId: storyIdStr, stats });
       thread = { ...thread, cachedStats: stats };
 
       // Update toolbar display if present.
@@ -329,27 +332,27 @@ async function initItemPage(url: URL) {
 
   async function onSaveToggle() {
     if (thread) {
-      await removeThread(storyId);
+      await removeThread(storyIdStr);
       thread = undefined;
       clearNewHighlights();
       renderToolbar();
       return;
     }
 
-    thread = await upsertThread({ id: storyId, title, url: itemUrl });
+    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl });
 
-    // First time saving: establish baseline as “seen”.
+    // First time saving: establish baseline as "seen".
     const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
-    await setVisitInfo({ storyId, maxSeenCommentId: currentMax });
+    await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
 
     const stats = computeStats({
       commentIds,
       lastReadCommentId: thread.lastReadCommentId,
       newCount: 0
     });
-    await setCachedStats({ storyId, stats });
+    await setCachedStats({ storyId: storyIdStr, stats });
 
-    thread = await getThread(storyId);
+    thread = await getThread(storyIdStr);
     renderToolbar();
   }
 
@@ -422,17 +425,17 @@ async function initItemPage(url: URL) {
     const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
 
     const { newCount } = applyNewHighlights(previousMaxSeen);
-    await setVisitInfo({ storyId, maxSeenCommentId: currentMax });
+    await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
 
     const stats = computeStats({
       commentIds,
       lastReadCommentId: thread.lastReadCommentId,
       newCount
     });
-    await setCachedStats({ storyId, stats });
+    await setCachedStats({ storyId: storyIdStr, stats });
 
     // Refresh local thread copy for UI labels.
-    thread = await getThread(storyId);
+    thread = await getThread(storyIdStr);
     renderToolbar();
   }
 }

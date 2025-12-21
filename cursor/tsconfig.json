@@ -9,7 +9,12 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["entrypoints/**/*.ts", "entrypoints/**/*.tsx", "wxt.config.ts", "components/**/*.ts", "components/**/*.tsx", "assets/**/*.css"]
+  "include": [
+    "entrypoints/**/*.ts",
+    "entrypoints/**/*.tsx",
+    "wxt.config.ts",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "assets/**/*.css"
+  ]
 }
-
-

@@ -1,4 +1,4 @@
-import { browser } from 'wxt/browser';
+import { browser } from "wxt/browser";
 
 export type ThreadStats = {
   totalComments: number;
@@ -18,7 +18,7 @@ export type ThreadRecord = {
   cachedStats?: ThreadStats;
 };
 
-const THREADS_BY_ID_KEY = 'hnLater:threadsById';
+const THREADS_BY_ID_KEY = "hnLater:threadsById";
 
 function nowMs() {
   return Date.now();
@@ -49,7 +49,7 @@ export async function upsertThread(input: {
     lastVisitedAt: existing?.lastVisitedAt,
     lastReadCommentId: existing?.lastReadCommentId,
     maxSeenCommentId: existing?.maxSeenCommentId,
-    cachedStats: existing?.cachedStats
+    cachedStats: existing?.cachedStats,
   };
 
   threadsById[input.id] = next;
@@ -75,7 +75,7 @@ export async function listThreads(): Promise<ThreadRecord[]> {
 
 export async function setLastReadCommentId(
   storyId: string,
-  lastReadCommentId: number | undefined
+  lastReadCommentId: number | undefined,
 ): Promise<void> {
   const threadsById = await getThreadsById();
   const existing = threadsById[storyId];
@@ -97,7 +97,7 @@ export async function setVisitInfo(input: {
   threadsById[input.storyId] = {
     ...existing,
     maxSeenCommentId: input.maxSeenCommentId,
-    lastVisitedAt: input.lastVisitedAt ?? nowMs()
+    lastVisitedAt: input.lastVisitedAt ?? nowMs(),
   };
   await setThreadsById(threadsById);
 }
@@ -122,11 +122,7 @@ export async function resetProgress(storyId: string): Promise<void> {
   threadsById[storyId] = {
     ...existing,
     lastReadCommentId: undefined,
-    cachedStats: undefined
+    cachedStats: undefined,
   };
   await setThreadsById(threadsById);
 }
-
-
-
-

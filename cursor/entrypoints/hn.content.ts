@@ -1,5 +1,5 @@
-import { defineContentScript } from 'wxt/utils/define-content-script';
-import { browser } from 'wxt/browser';
+import { defineContentScript } from "wxt/utils/define-content-script";
+import { browser } from "wxt/browser";
 
 import {
   getThread,
@@ -10,17 +10,17 @@ import {
   setVisitInfo,
   upsertThread,
   type ThreadRecord,
-  type ThreadStats
-} from '../utils/hnStorage';
+  type ThreadStats,
+} from "../utils/hnStorage";
 
-const ITEM_BASE_URL = 'https://news.ycombinator.com/item?id=';
+const ITEM_BASE_URL = "https://news.ycombinator.com/item?id=";
 
 function isItemPage(url: URL) {
-  return url.pathname === '/item' && !!url.searchParams.get('id');
+  return url.pathname === "/item" && !!url.searchParams.get("id");
 }
 
 function getStoryIdFromItemUrl(url: URL): string | undefined {
-  const id = url.searchParams.get('id');
+  const id = url.searchParams.get("id");
   return id ?? undefined;
 }
 
@@ -29,18 +29,20 @@ function getItemUrl(storyId: string) {
 }
 
 function getItemTitleFromDom(): string {
-  const fromTitleLine = document.querySelector<HTMLAnchorElement>('span.titleline a')?.textContent?.trim();
+  const fromTitleLine = document
+    .querySelector<HTMLAnchorElement>("span.titleline a")
+    ?.textContent?.trim();
   if (fromTitleLine) return fromTitleLine;
 
-  const fromDocTitle = document.title.replace(/\s*\|\s*Hacker News\s*$/i, '').trim();
-  return fromDocTitle || 'Hacker News';
+  const fromDocTitle = document.title.replace(/\s*\|\s*Hacker News\s*$/i, "").trim();
+  return fromDocTitle || "Hacker News";
 }
 
 function ensureStyles() {
-  const id = 'hn-later-style';
+  const id = "hn-later-style";
   if (document.getElementById(id)) return;
 
-  const style = document.createElement('style');
+  const style = document.createElement("style");
   style.id = id;
   style.textContent = `
     .hn-later-link { font-size: 10px; opacity: 0.85; }
@@ -78,7 +80,7 @@ function ensureStyles() {
 }
 
 function getCommentRows(): HTMLTableRowElement[] {
-  return Array.from(document.querySelectorAll<HTMLTableRowElement>('tr.athing.comtr'));
+  return Array.from(document.querySelectorAll<HTMLTableRowElement>("tr.athing.comtr"));
 }
 
 function getCommentIdsInDomOrder(rows: HTMLTableRowElement[]): number[] {
@@ -96,23 +98,20 @@ function computeStats(input: {
   newCount?: number;
 }): ThreadStats {
   const totalComments = input.commentIds.length;
-  const idx = input.lastReadCommentId
-    ? input.commentIds.indexOf(input.lastReadCommentId)
-    : -1;
+  const idx = input.lastReadCommentId ? input.commentIds.indexOf(input.lastReadCommentId) : -1;
   const readCount = idx >= 0 ? idx + 1 : 0;
-  const percent =
-    totalComments === 0 ? 0 : Math.round((readCount / totalComments) * 100);
+  const percent = totalComments === 0 ? 0 : Math.round((readCount / totalComments) * 100);
 
   return {
     totalComments,
     readCount,
     percent,
-    newCount: input.newCount
+    newCount: input.newCount,
   };
 }
 
 function scrollToRow(row: HTMLTableRowElement) {
-  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function highlightRow(row: HTMLTableRowElement, className: string) {
@@ -121,18 +120,18 @@ function highlightRow(row: HTMLTableRowElement, className: string) {
 }
 
 function createToolbarContainer(): HTMLDivElement {
-  const el = document.createElement('div');
-  el.className = 'hn-later-toolbar';
+  const el = document.createElement("div");
+  el.className = "hn-later-toolbar";
   return el;
 }
 
 function mountToolbarNearFirstComment(toolbar: HTMLElement, firstCommentRow: HTMLTableRowElement) {
   // Insert a full-width row right before the first comment.
-  if (firstCommentRow.previousElementSibling?.classList.contains('hn-later-toolbar-row')) return;
+  if (firstCommentRow.previousElementSibling?.classList.contains("hn-later-toolbar-row")) return;
 
-  const tr = document.createElement('tr');
-  tr.className = 'hn-later-toolbar-row';
-  const td = document.createElement('td');
+  const tr = document.createElement("tr");
+  tr.className = "hn-later-toolbar-row";
+  const td = document.createElement("td");
   td.colSpan = 3;
   td.appendChild(toolbar);
   tr.appendChild(td);
@@ -148,7 +147,7 @@ function registerMessageListener() {
     const message = raw as { type?: string; storyId?: string };
     if (!message?.type) return;
 
-    if (message.type !== 'hnLater/continue' && message.type !== 'hnLater/jumpToNew') return;
+    if (message.type !== "hnLater/continue" && message.type !== "hnLater/jumpToNew") return;
 
     (async () => {
       try {
@@ -161,7 +160,7 @@ function registerMessageListener() {
         const commentRows = getCommentRows();
         const commentIds = getCommentIdsInDomOrder(commentRows);
 
-        if (message.type === 'hnLater/continue') {
+        if (message.type === "hnLater/continue") {
           const thread = await getThread(currentStoryId);
           const lastRead = thread?.lastReadCommentId;
 
@@ -169,15 +168,15 @@ function registerMessageListener() {
           const target = idx >= 0 ? commentRows[idx + 1] : commentRows[0];
           if (target) {
             scrollToRow(target);
-            highlightRow(target, 'hn-later-highlight');
+            highlightRow(target, "hn-later-highlight");
           }
         }
 
-        if (message.type === 'hnLater/jumpToNew') {
-          const firstNew = commentRows.find((r) => r.classList.contains('hn-later-new'));
+        if (message.type === "hnLater/jumpToNew") {
+          const firstNew = commentRows.find((r) => r.classList.contains("hn-later-new"));
           if (firstNew) {
             scrollToRow(firstNew);
-            highlightRow(firstNew, 'hn-later-highlight');
+            highlightRow(firstNew, "hn-later-highlight");
           }
         }
 
@@ -197,39 +196,41 @@ async function initListingPage() {
   const threads = await listThreads();
   const savedIds = new Set(threads.map((t) => t.id));
 
-  const storyRows = Array.from(document.querySelectorAll<HTMLTableRowElement>('tr.athing'));
+  const storyRows = Array.from(document.querySelectorAll<HTMLTableRowElement>("tr.athing"));
   for (const row of storyRows) {
     const storyId = row.id?.trim();
     if (!storyId) continue;
 
     // Subtext is usually in the next row.
-    const subtextTd = row.nextElementSibling?.querySelector<HTMLTableCellElement>('td.subtext');
+    const subtextTd = row.nextElementSibling?.querySelector<HTMLTableCellElement>("td.subtext");
     if (!subtextTd) continue;
     if (subtextTd.querySelector(`a[data-hn-later-story-id="${storyId}"]`)) continue;
 
-    const title = row.querySelector<HTMLAnchorElement>('span.titleline a')?.textContent?.trim() ?? `HN item ${storyId}`;
+    const title =
+      row.querySelector<HTMLAnchorElement>("span.titleline a")?.textContent?.trim() ??
+      `HN item ${storyId}`;
     const itemUrl = getItemUrl(storyId);
 
-    const sep = document.createTextNode(' | ');
-    const link = document.createElement('a');
-    link.href = '#';
-    link.className = 'hn-later-link';
+    const sep = document.createTextNode(" | ");
+    const link = document.createElement("a");
+    link.href = "#";
+    link.className = "hn-later-link";
     link.dataset.hnLaterStoryId = storyId;
-    link.textContent = savedIds.has(storyId) ? 'saved' : 'later';
-    link.addEventListener('click', async (e) => {
+    link.textContent = savedIds.has(storyId) ? "saved" : "later";
+    link.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
 
       if (savedIds.has(storyId)) {
         await removeThread(storyId);
         savedIds.delete(storyId);
-        link.textContent = 'later';
+        link.textContent = "later";
         return;
       }
 
       await upsertThread({ id: storyId, title, url: itemUrl });
       savedIds.add(storyId);
-      link.textContent = 'saved';
+      link.textContent = "saved";
     });
 
     subtextTd.appendChild(sep);
@@ -262,16 +263,16 @@ async function initItemPage(url: URL) {
     const commentId = Number(row.id);
     if (!Number.isFinite(commentId)) continue;
 
-    const comhead = row.querySelector('span.comhead');
+    const comhead = row.querySelector("span.comhead");
     if (!comhead) continue;
     if (comhead.querySelector(`a[data-hn-later-mark="${commentId}"]`)) continue;
 
-    const mark = document.createElement('a');
-    mark.href = '#';
-    mark.className = 'hn-later-mark';
+    const mark = document.createElement("a");
+    mark.href = "#";
+    mark.className = "hn-later-mark";
     mark.dataset.hnLaterMark = String(commentId);
-    mark.textContent = 'mark-to-here';
-    mark.addEventListener('click', async (e) => {
+    mark.textContent = "mark-to-here";
+    mark.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
 
@@ -283,7 +284,7 @@ async function initItemPage(url: URL) {
       const stats = computeStats({
         commentIds,
         lastReadCommentId: commentId,
-        newCount: thread.cachedStats?.newCount
+        newCount: thread.cachedStats?.newCount,
       });
       await setCachedStats({ storyId: storyIdStr, stats });
       thread = { ...thread, cachedStats: stats };
@@ -299,13 +300,14 @@ async function initItemPage(url: URL) {
   mountToolbarNearFirstComment(toolbar, firstCommentRow);
 
   function clearNewHighlights() {
-    for (const row of commentRows) row.classList.remove('hn-later-new');
+    for (const row of commentRows) row.classList.remove("hn-later-new");
   }
 
   function applyNewHighlights(previousMaxSeen: number | undefined) {
     clearNewHighlights();
 
-    if (!previousMaxSeen) return { newCount: 0, firstNewRow: undefined as HTMLTableRowElement | undefined };
+    if (!previousMaxSeen)
+      return { newCount: 0, firstNewRow: undefined as HTMLTableRowElement | undefined };
 
     let newCount = 0;
     let firstNewRow: HTMLTableRowElement | undefined;
@@ -314,7 +316,7 @@ async function initItemPage(url: URL) {
       const id = Number(row.id);
       if (!Number.isFinite(id)) continue;
       if (id > previousMaxSeen) {
-        row.classList.add('hn-later-new');
+        row.classList.add("hn-later-new");
         newCount += 1;
         if (!firstNewRow) firstNewRow = row;
       }
@@ -323,7 +325,9 @@ async function initItemPage(url: URL) {
     return { newCount, firstNewRow };
   }
 
-  function findContinueTarget(lastReadCommentId: number | undefined): HTMLTableRowElement | undefined {
+  function findContinueTarget(
+    lastReadCommentId: number | undefined,
+  ): HTMLTableRowElement | undefined {
     if (!lastReadCommentId) return commentRows[0];
     const idx = commentIds.indexOf(lastReadCommentId);
     if (idx < 0) return commentRows[0];
@@ -348,7 +352,7 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       lastReadCommentId: thread.lastReadCommentId,
-      newCount: 0
+      newCount: 0,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
@@ -366,48 +370,50 @@ async function initItemPage(url: URL) {
       ? computeStats({
           commentIds,
           lastReadCommentId: lastRead,
-          newCount: thread?.cachedStats?.newCount
+          newCount: thread?.cachedStats?.newCount,
         })
       : undefined;
 
-    const left = document.createElement('span');
-    left.className = 'hn-later-pill';
+    const left = document.createElement("span");
+    left.className = "hn-later-pill";
     left.textContent = saved
       ? `Progress: ${stats?.readCount ?? 0}/${stats?.totalComments ?? 0} (${stats?.percent ?? 0}%)`
-      : 'Not saved — save to track progress';
+      : "Not saved — save to track progress";
 
-    const saveLink = document.createElement('a');
-    saveLink.href = '#';
-    saveLink.textContent = saved ? 'Unsave' : 'Save';
-    saveLink.addEventListener('click', async (e) => {
+    const saveLink = document.createElement("a");
+    saveLink.href = "#";
+    saveLink.textContent = saved ? "Unsave" : "Save";
+    saveLink.addEventListener("click", async (e) => {
       e.preventDefault();
       await onSaveToggle();
     });
 
-    const continueLink = document.createElement('a');
-    continueLink.href = '#';
-    continueLink.textContent = 'Continue';
-    continueLink.style.opacity = saved ? '1' : '0.4';
-    continueLink.addEventListener('click', (e) => {
+    const continueLink = document.createElement("a");
+    continueLink.href = "#";
+    continueLink.textContent = "Continue";
+    continueLink.style.opacity = saved ? "1" : "0.4";
+    continueLink.addEventListener("click", (e) => {
       e.preventDefault();
       if (!saved) return;
       const target = findContinueTarget(thread?.lastReadCommentId);
       if (!target) return;
       scrollToRow(target);
-      highlightRow(target, 'hn-later-highlight');
+      highlightRow(target, "hn-later-highlight");
     });
 
-    const jumpNewLink = document.createElement('a');
-    jumpNewLink.href = '#';
-    jumpNewLink.textContent = saved ? `Jump to new (${thread?.cachedStats?.newCount ?? 0})` : 'Jump to new';
-    jumpNewLink.style.opacity = saved ? '1' : '0.4';
-    jumpNewLink.addEventListener('click', (e) => {
+    const jumpNewLink = document.createElement("a");
+    jumpNewLink.href = "#";
+    jumpNewLink.textContent = saved
+      ? `Jump to new (${thread?.cachedStats?.newCount ?? 0})`
+      : "Jump to new";
+    jumpNewLink.style.opacity = saved ? "1" : "0.4";
+    jumpNewLink.addEventListener("click", (e) => {
       e.preventDefault();
       if (!saved) return;
-      const firstNew = commentRows.find((r) => r.classList.contains('hn-later-new'));
+      const firstNew = commentRows.find((r) => r.classList.contains("hn-later-new"));
       if (!firstNew) return;
       scrollToRow(firstNew);
-      highlightRow(firstNew, 'hn-later-highlight');
+      highlightRow(firstNew, "hn-later-highlight");
     });
 
     toolbar.appendChild(left);
@@ -430,7 +436,7 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       lastReadCommentId: thread.lastReadCommentId,
-      newCount
+      newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
@@ -441,7 +447,7 @@ async function initItemPage(url: URL) {
 }
 
 export default defineContentScript({
-  matches: ['https://news.ycombinator.com/*'],
+  matches: ["https://news.ycombinator.com/*"],
   async main() {
     registerMessageListener();
 
@@ -452,7 +458,5 @@ export default defineContentScript({
     }
 
     await initListingPage();
-  }
+  },
 });
-
-

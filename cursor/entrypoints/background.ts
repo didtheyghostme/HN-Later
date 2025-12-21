@@ -1,4 +1,5 @@
 import { defineBackground } from 'wxt/utils/define-background';
+import { browser, type Browser } from 'wxt/browser';
 
 export default defineBackground(() => {
   type HnLaterMessage =
@@ -6,42 +7,42 @@ export default defineBackground(() => {
     | { type: 'hnLater/continue'; storyId: string }
     | { type: 'hnLater/jumpToNew'; storyId: string };
 
-  async function openOrFocusItemTab(storyId: string): Promise<chrome.tabs.Tab> {
+  async function openOrFocusItemTab(storyId: string): Promise<Browser.tabs.Tab> {
     const targetUrl = `https://news.ycombinator.com/item?id=${encodeURIComponent(storyId)}`;
 
-    const tabs = await chrome.tabs.query({
+    const tabs = await browser.tabs.query({
       url: [`*://news.ycombinator.com/item?id=${storyId}*`]
     });
 
     const existing = tabs.find((t) => t.id != null);
     if (existing?.id != null) {
       if (existing.windowId != null) {
-        await chrome.windows.update(existing.windowId, { focused: true });
+        await browser.windows.update(existing.windowId, { focused: true });
       }
-      await chrome.tabs.update(existing.id, { active: true });
+      await browser.tabs.update(existing.id, { active: true });
       // Ensure we’re on the canonical URL (in case hash differs).
       if (existing.url !== targetUrl) {
-        await chrome.tabs.update(existing.id, { url: targetUrl });
+        await browser.tabs.update(existing.id, { url: targetUrl });
       }
-      return (await chrome.tabs.get(existing.id)) as chrome.tabs.Tab;
+      return await browser.tabs.get(existing.id);
     }
 
-    const created = await chrome.tabs.create({ url: targetUrl, active: true });
+    const created = await browser.tabs.create({ url: targetUrl, active: true });
     return created;
   }
 
   async function waitForTabComplete(tabId: number): Promise<void> {
-    const tab = await chrome.tabs.get(tabId);
+    const tab = await browser.tabs.get(tabId);
     if (tab.status === 'complete') return;
 
     await new Promise<void>((resolve) => {
-      const listener = (updatedTabId: number, info: chrome.tabs.TabChangeInfo) => {
+      const listener = (updatedTabId: number, info: Browser.tabs.OnUpdatedInfo, _tab: Browser.tabs.Tab) => {
         if (updatedTabId !== tabId) return;
         if (info.status !== 'complete') return;
-        chrome.tabs.onUpdated.removeListener(listener);
+        browser.tabs.onUpdated.removeListener(listener);
         resolve();
       };
-      chrome.tabs.onUpdated.addListener(listener);
+      browser.tabs.onUpdated.addListener(listener);
     });
   }
 
@@ -49,17 +50,17 @@ export default defineBackground(() => {
     // Retry a few times in case the content script isn’t ready yet.
     for (let i = 0; i < 15; i += 1) {
       try {
-        await chrome.tabs.sendMessage(tabId, message);
+        await browser.tabs.sendMessage(tabId, message);
         return;
       } catch {
         await new Promise((r) => setTimeout(r, 200));
       }
     }
     // Last attempt (surface error)
-    await chrome.tabs.sendMessage(tabId, message);
+    await browser.tabs.sendMessage(tabId, message);
   }
 
-  chrome.runtime.onMessage.addListener((raw: unknown, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((raw: unknown, _sender, sendResponse) => {
     const message = raw as Partial<HnLaterMessage>;
     if (!message?.type) return;
 

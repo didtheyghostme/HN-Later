@@ -1,3 +1,5 @@
+import { browser } from 'wxt/browser';
+
 export type ThreadStats = {
   totalComments: number;
   readCount: number;
@@ -23,12 +25,12 @@ function nowMs() {
 }
 
 async function getThreadsById(): Promise<Record<string, ThreadRecord>> {
-  const result = await chrome.storage.local.get(THREADS_BY_ID_KEY);
+  const result = await browser.storage.local.get(THREADS_BY_ID_KEY);
   return (result?.[THREADS_BY_ID_KEY] ?? {}) as Record<string, ThreadRecord>;
 }
 
 async function setThreadsById(next: Record<string, ThreadRecord>): Promise<void> {
-  await chrome.storage.local.set({ [THREADS_BY_ID_KEY]: next });
+  await browser.storage.local.set({ [THREADS_BY_ID_KEY]: next });
 }
 
 export async function upsertThread(input: {
@@ -124,6 +126,7 @@ export async function resetProgress(storyId: string): Promise<void> {
   };
   await setThreadsById(threadsById);
 }
+
 
 
 

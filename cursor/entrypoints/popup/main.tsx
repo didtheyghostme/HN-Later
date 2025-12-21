@@ -1,5 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { browser, type Browser } from 'wxt/browser';
 
 import '../../assets/tailwind.css';
 
@@ -13,7 +14,7 @@ import {
 type BgResponse = { ok: boolean; tabId?: number; error?: string };
 
 async function sendToBackground(message: unknown): Promise<BgResponse> {
-  return (await chrome.runtime.sendMessage(message)) as BgResponse;
+  return (await browser.runtime.sendMessage(message)) as BgResponse;
 }
 
 function formatPercent(percent: number | undefined) {
@@ -36,13 +37,13 @@ function App() {
   }, [refresh]);
 
   React.useEffect(() => {
-    const listener = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+    const listener = (changes: Record<string, Browser.storage.StorageChange>, area: string) => {
       if (area !== 'local') return;
       if (!changes['hnLater:threadsById']) return;
       refresh();
     };
-    chrome.storage.onChanged.addListener(listener);
-    return () => chrome.storage.onChanged.removeListener(listener);
+    browser.storage.onChanged.addListener(listener);
+    return () => browser.storage.onChanged.removeListener(listener);
   }, [refresh]);
 
   const filtered = React.useMemo(() => {

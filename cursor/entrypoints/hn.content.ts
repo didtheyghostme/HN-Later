@@ -1,4 +1,5 @@
 import { defineContentScript } from 'wxt/utils/define-content-script';
+import { browser } from 'wxt/browser';
 
 import {
   getThread,
@@ -143,7 +144,7 @@ function registerMessageListener() {
   if (messageListenerRegistered) return;
   messageListenerRegistered = true;
 
-  chrome.runtime.onMessage.addListener((raw: unknown, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((raw: unknown, _sender, sendResponse) => {
     const message = raw as { type?: string; storyId?: string };
     if (!message?.type) return;
 

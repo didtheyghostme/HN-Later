@@ -11,7 +11,7 @@ A **Manifest V3** Chrome extension for `news.ycombinator.com`:
 ## Tech stack
 - **WXT** (MV3 extension build tooling)
 - **React + TailwindCSS + DaisyUI** (popup UI)
-- **chrome.storage.local** (local-only persistence)
+- **browser.storage.local** (local-only persistence)
 
 ## Setup
 ### Requirements

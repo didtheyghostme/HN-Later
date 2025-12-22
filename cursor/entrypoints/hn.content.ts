@@ -165,7 +165,7 @@ function registerMessageListener() {
           const lastRead = thread?.lastReadCommentId;
 
           const idx = lastRead ? commentIds.indexOf(lastRead) : -1;
-          const target = idx >= 0 ? commentRows[idx + 1] : commentRows[0];
+          const target = idx >= 0 ? commentRows[idx] : commentRows[0];
           if (target) {
             scrollToRow(target);
             highlightRow(target, "hn-later-highlight");
@@ -331,7 +331,7 @@ async function initItemPage(url: URL) {
     if (!lastReadCommentId) return commentRows[0];
     const idx = commentIds.indexOf(lastReadCommentId);
     if (idx < 0) return commentRows[0];
-    return commentRows[idx + 1] ?? undefined;
+    return commentRows[idx] ?? undefined;
   }
 
   async function onSaveToggle() {

@@ -102,6 +102,8 @@ function ensureStyles() {
       font-size: 12px;
     }
     #hn-later-floating-new-nav button:hover { background: rgba(0,0,0,0.12); }
+    #hn-later-floating-new-nav button.hn-later-floating-seen { background: rgba(0, 128, 0, 0.14); }
+    #hn-later-floating-new-nav button.hn-later-floating-seen:hover { background: rgba(0, 128, 0, 0.2); }
     #hn-later-floating-new-nav .hn-later-floating-label { opacity: 0.8; font-variant-numeric: tabular-nums; }
   `;
   document.head.appendChild(style);
@@ -422,6 +424,26 @@ async function initItemPage(url: URL) {
     jumpToNewIndex(prevIdx);
   }
 
+  async function markNewAsSeen() {
+    if (!thread) return;
+
+    const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
+    await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+
+    clearNewHighlights(commentRows);
+    currentNewIdx = undefined;
+
+    const stats = computeStats({
+      commentIds,
+      lastReadCommentId: thread?.lastReadCommentId,
+      newCount: 0,
+    });
+    await setCachedStats({ storyId: storyIdStr, stats });
+
+    thread = await getThread(storyIdStr);
+    renderToolbar();
+  }
+
   function renderFloatingNewNav() {
     const saved = !!thread;
     const newRows = getNewRows();
@@ -465,9 +487,21 @@ async function initItemPage(url: URL) {
       jumpToNextNew();
     });
 
+    const seenBtn = document.createElement("button");
+    seenBtn.type = "button";
+    seenBtn.className = "hn-later-floating-seen";
+    seenBtn.textContent = "✓ seen";
+    seenBtn.title = "Mark new comments as seen";
+    seenBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void markNewAsSeen();
+    });
+
     floatingNewNav.appendChild(prevBtn);
     floatingNewNav.appendChild(label);
     floatingNewNav.appendChild(nextBtn);
+    floatingNewNav.appendChild(seenBtn);
   }
 
   function findContinueTarget(
@@ -566,22 +600,7 @@ async function initItemPage(url: URL) {
     markNewSeenLink.addEventListener("click", async (e) => {
       e.preventDefault();
       if (!saved) return;
-
-      const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
-      await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
-
-      clearNewHighlights(commentRows);
-      currentNewIdx = undefined;
-
-      const stats = computeStats({
-        commentIds,
-        lastReadCommentId: thread?.lastReadCommentId,
-        newCount: 0,
-      });
-      await setCachedStats({ storyId: storyIdStr, stats });
-
-      thread = await getThread(storyIdStr);
-      renderToolbar();
+      await markNewAsSeen();
     });
 
     toolbar.appendChild(left);

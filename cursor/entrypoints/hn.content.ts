@@ -71,8 +71,25 @@ function ensureStyles() {
       background: rgba(0,0,0,0.07);
     }
 
-    tr.hn-later-new td.default { outline: 2px solid rgba(255, 165, 0, 0.55); outline-offset: 2px; }
-    tr.hn-later-highlight td.default { outline: 3px solid rgba(0, 128, 255, 0.6); outline-offset: 2px; }
+    tr.hn-later-unread td.default { box-shadow: inset 4px 0 0 rgba(0, 128, 255, 0.32); }
+    tr.hn-later-highlight td.default { outline: 3px solid rgba(0, 128, 255, 0.65); outline-offset: 2px; }
+
+    .hn-later-chip {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-size: 10px;
+      line-height: 14px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      vertical-align: baseline;
+    }
+    .hn-later-chip-new {
+      background: rgba(255, 102, 0, 0.16);
+      border: 1px solid rgba(255, 102, 0, 0.35);
+      color: #7c2d12;
+    }
 
     .hn-later-mark { margin-left: 6px; font-size: 10px; opacity: 0.85; }
     .hn-later-mark:hover { opacity: 1; }
@@ -123,8 +140,36 @@ function getCommentIdsInDomOrder(rows: HTMLTableRowElement[]): number[] {
   return ids;
 }
 
+function ensureNewChip(row: HTMLTableRowElement) {
+  const comhead = row.querySelector("span.comhead");
+  if (!comhead) return;
+  if (comhead.querySelector(`[data-hn-later-chip="new"]`)) return;
+
+  const chip = document.createElement("span");
+  chip.dataset.hnLaterChip = "new";
+  chip.className = "hn-later-chip hn-later-chip-new";
+  chip.textContent = "NEW";
+
+  const markLink = comhead.querySelector<HTMLElement>("a.hn-later-mark");
+  if (markLink) {
+    comhead.insertBefore(chip, markLink);
+    return;
+  }
+
+  comhead.appendChild(chip);
+}
+
+function removeNewChips(row: HTMLTableRowElement) {
+  const comhead = row.querySelector("span.comhead");
+  if (!comhead) return;
+  for (const el of Array.from(comhead.querySelectorAll(`[data-hn-later-chip="new"]`))) el.remove();
+}
+
 function clearNewHighlights(rows: HTMLTableRowElement[]) {
-  for (const row of rows) row.classList.remove("hn-later-new");
+  for (const row of rows) {
+    row.classList.remove("hn-later-new");
+    removeNewChips(row);
+  }
 }
 
 function applyNewHighlights(
@@ -157,11 +202,38 @@ function applyNewHighlights(
     }
 
     row.classList.add("hn-later-new");
+    ensureNewChip(row);
     newCount += 1;
     if (!firstNewRow) firstNewRow = row;
   }
 
   return { newCount, firstNewRow };
+}
+
+function clearUnreadGutters(rows: HTMLTableRowElement[]) {
+  for (const row of rows) row.classList.remove("hn-later-unread");
+}
+
+function applyUnreadGutters(rows: HTMLTableRowElement[], lastReadCommentId: number | undefined) {
+  clearUnreadGutters(rows);
+
+  const markerId = lastReadCommentId;
+  const markerRowIndex = markerId != null ? rows.findIndex((r) => Number(r.id) === markerId) : -1;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+
+    // Always treat "new" as unread, even if it appears above the checkpoint.
+    if (row.classList.contains("hn-later-new")) {
+      row.classList.add("hn-later-unread");
+      continue;
+    }
+
+    // If the row is at/above the marker, consider it "read" (no gutter).
+    if (markerRowIndex >= 0 && i <= markerRowIndex) continue;
+
+    row.classList.add("hn-later-unread");
+  }
 }
 
 function computeStats(input: {
@@ -263,6 +335,8 @@ function registerMessageListener() {
               dismissNewAboveUntilId: thread?.dismissNewAboveUntilId,
             },
           );
+          if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
+          else clearUnreadGutters(commentRows);
           if (firstNewRow) {
             currentNewIdx = 0;
             scrollToRow(firstNewRow);
@@ -387,6 +461,7 @@ async function initItemPage(url: URL) {
         lastReadCommentId: commentId,
         dismissNewAboveUntilId: dismissUntil,
       });
+      applyUnreadGutters(commentRows, commentId);
 
       const stats = computeStats({
         commentIds,
@@ -464,6 +539,7 @@ async function initItemPage(url: URL) {
 
     clearNewHighlights(commentRows);
     currentNewIdx = undefined;
+    applyUnreadGutters(commentRows, thread.lastReadCommentId);
 
     const stats = computeStats({
       commentIds,
@@ -550,6 +626,7 @@ async function initItemPage(url: URL) {
       await removeThread(storyIdStr);
       thread = undefined;
       clearNewHighlights(commentRows);
+      clearUnreadGutters(commentRows);
       currentNewIdx = undefined;
       renderToolbar();
       return;
@@ -569,6 +646,7 @@ async function initItemPage(url: URL) {
     await setCachedStats({ storyId: storyIdStr, stats });
 
     thread = await getThread(storyIdStr);
+    if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
     renderToolbar();
   }
 
@@ -644,6 +722,7 @@ async function initItemPage(url: URL) {
 
       // Refresh local thread copy for UI labels.
       thread = await getThread(storyIdStr);
+      if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
       renderToolbar();
       return;
     }
@@ -652,6 +731,7 @@ async function initItemPage(url: URL) {
       lastReadCommentId: thread.lastReadCommentId,
       dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
     });
+    applyUnreadGutters(commentRows, thread.lastReadCommentId);
 
     const stats = computeStats({
       commentIds,

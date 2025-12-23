@@ -150,6 +150,13 @@ function ensureNewChip(row: HTMLTableRowElement) {
   chip.className = "hn-later-chip hn-later-chip-new";
   chip.textContent = "NEW";
 
+  // Prefer placing right after the "age" element (e.g., "3 hours ago") for fast scanning.
+  const age = comhead.querySelector<HTMLElement>("span.age");
+  if (age) {
+    age.insertAdjacentElement("afterend", chip);
+    return;
+  }
+
   const markLink = comhead.querySelector<HTMLElement>("a.hn-later-mark");
   if (markLink) {
     comhead.insertBefore(chip, markLink);

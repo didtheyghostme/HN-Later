@@ -67,6 +67,7 @@ WXT will run the extension in a dev browser profile with hot reload.
 
 - **Continue**: jumps to the next unread comment after your marker.
 - **Jump to new**: jumps to the first comment that’s new since your last time clicking **Mark new as seen** (based on HN comment ids).
+  - A small floating **↑/↓ new** navigator appears at the bottom-right when there are new comments, so you can step through them without scrolling back to the top.
   - Page refresh/accidental visits do **not** clear “new”.
   - Click **Mark new as seen** in the toolbar to acknowledge the current thread state and clear the “new” badge/highlights.
 

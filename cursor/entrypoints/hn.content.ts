@@ -75,6 +75,34 @@ function ensureStyles() {
 
     .hn-later-mark { margin-left: 6px; font-size: 10px; opacity: 0.85; }
     .hn-later-mark:hover { opacity: 1; }
+
+    #hn-later-floating-new-nav {
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      border: 1px solid rgba(0,0,0,0.12);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(6px);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+      font-size: 12px;
+      color: #000;
+    }
+    #hn-later-floating-new-nav button {
+      cursor: pointer;
+      border: none;
+      background: rgba(0,0,0,0.07);
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 12px;
+    }
+    #hn-later-floating-new-nav button:hover { background: rgba(0,0,0,0.12); }
+    #hn-later-floating-new-nav .hn-later-floating-label { opacity: 0.8; font-variant-numeric: tabular-nums; }
   `;
   document.head.appendChild(style);
 }
@@ -166,6 +194,9 @@ function mountToolbarNearFirstComment(toolbar: HTMLElement, firstCommentRow: HTM
   firstCommentRow.parentElement?.insertBefore(tr, firstCommentRow);
 }
 
+// Index in DOM order for the currently selected "new comment" within this page's filtered list.
+let currentNewIdx: number | undefined;
+
 let messageListenerRegistered = false;
 function registerMessageListener() {
   if (messageListenerRegistered) return;
@@ -208,10 +239,18 @@ function registerMessageListener() {
 
         if (message.type === "hnLater/jumpToNew") {
           const thread = await getThread(currentStoryId);
-          const { firstNewRow } = applyNewHighlights(commentRows, thread?.maxSeenCommentId);
+          const { newCount, firstNewRow } = applyNewHighlights(
+            commentRows,
+            thread?.maxSeenCommentId,
+          );
           if (firstNewRow) {
+            currentNewIdx = 0;
             scrollToRow(firstNewRow);
             highlightRow(firstNewRow, "hn-later-highlight");
+
+            // Best-effort sync for the floating new-nav label (it may not be mounted yet).
+            const label = document.getElementById("hn-later-floating-new-label");
+            if (label) label.textContent = `New 1/${newCount}`;
           }
         }
 
@@ -334,6 +373,103 @@ async function initItemPage(url: URL) {
   const toolbar = createToolbarContainer();
   mountToolbarNearFirstComment(toolbar, firstCommentRow);
 
+  function ensureFloatingNewNavContainer(): HTMLDivElement {
+    const existing = document.getElementById("hn-later-floating-new-nav");
+    if (existing) return existing as HTMLDivElement;
+
+    const el = document.createElement("div");
+    el.id = "hn-later-floating-new-nav";
+    // Hidden by default until we determine there are new comments.
+    el.style.display = "none";
+    document.body.appendChild(el);
+    return el;
+  }
+
+  const floatingNewNav = ensureFloatingNewNavContainer();
+
+  function getNewRows(): HTMLTableRowElement[] {
+    return commentRows.filter((r) => r.classList.contains("hn-later-new"));
+  }
+
+  function jumpToNewIndex(idx: number) {
+    const newRows = getNewRows();
+    if (newRows.length === 0) return;
+    if (idx < 0 || idx >= newRows.length) return;
+
+    const target = newRows[idx];
+    currentNewIdx = idx;
+    scrollToRow(target);
+    highlightRow(target, "hn-later-highlight");
+    renderFloatingNewNav();
+  }
+
+  function jumpToNextNew() {
+    const newRows = getNewRows();
+    if (newRows.length === 0) return;
+
+    const nextIdx = currentNewIdx == null ? 0 : (currentNewIdx + 1) % newRows.length;
+    jumpToNewIndex(nextIdx);
+  }
+
+  function jumpToPrevNew() {
+    const newRows = getNewRows();
+    if (newRows.length === 0) return;
+
+    const prevIdx =
+      currentNewIdx == null
+        ? newRows.length - 1
+        : (currentNewIdx - 1 + newRows.length) % newRows.length;
+    jumpToNewIndex(prevIdx);
+  }
+
+  function renderFloatingNewNav() {
+    const saved = !!thread;
+    const newRows = getNewRows();
+    const newCount = newRows.length;
+
+    if (!saved || newCount === 0) {
+      floatingNewNav.style.display = "none";
+      return;
+    }
+
+    if (currentNewIdx != null && (currentNewIdx < 0 || currentNewIdx >= newCount)) {
+      currentNewIdx = undefined;
+    }
+
+    floatingNewNav.style.display = "flex";
+    floatingNewNav.replaceChildren();
+
+    const prevBtn = document.createElement("button");
+    prevBtn.type = "button";
+    prevBtn.textContent = "↑ new";
+    prevBtn.title = "Previous new comment";
+    prevBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      jumpToPrevNew();
+    });
+
+    const label = document.createElement("span");
+    label.id = "hn-later-floating-new-label";
+    label.className = "hn-later-floating-label";
+    label.textContent =
+      currentNewIdx == null ? `New ${newCount}` : `New ${currentNewIdx + 1}/${newCount}`;
+
+    const nextBtn = document.createElement("button");
+    nextBtn.type = "button";
+    nextBtn.textContent = "↓ new";
+    nextBtn.title = "Next new comment";
+    nextBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      jumpToNextNew();
+    });
+
+    floatingNewNav.appendChild(prevBtn);
+    floatingNewNav.appendChild(label);
+    floatingNewNav.appendChild(nextBtn);
+  }
+
   function findContinueTarget(
     lastReadCommentId: number | undefined,
   ): HTMLTableRowElement | undefined {
@@ -348,6 +484,7 @@ async function initItemPage(url: URL) {
       await removeThread(storyIdStr);
       thread = undefined;
       clearNewHighlights(commentRows);
+      currentNewIdx = undefined;
       renderToolbar();
       return;
     }
@@ -374,6 +511,8 @@ async function initItemPage(url: URL) {
 
     const saved = !!thread;
     const lastRead = thread?.lastReadCommentId;
+    const newCount = getNewRows().length;
+    const canNavNew = saved && newCount > 0;
 
     const stats = saved
       ? computeStats({
@@ -412,17 +551,12 @@ async function initItemPage(url: URL) {
 
     const jumpNewLink = document.createElement("a");
     jumpNewLink.href = "#";
-    jumpNewLink.textContent = saved
-      ? `Jump to new (${thread?.cachedStats?.newCount ?? 0})`
-      : "Jump to new";
-    jumpNewLink.style.opacity = saved ? "1" : "0.4";
+    jumpNewLink.textContent = saved ? `Jump to new (${newCount})` : "Jump to new";
+    jumpNewLink.style.opacity = canNavNew ? "1" : "0.4";
     jumpNewLink.addEventListener("click", (e) => {
       e.preventDefault();
-      if (!saved) return;
-      const firstNew = commentRows.find((r) => r.classList.contains("hn-later-new"));
-      if (!firstNew) return;
-      scrollToRow(firstNew);
-      highlightRow(firstNew, "hn-later-highlight");
+      if (!canNavNew) return;
+      jumpToNewIndex(0);
     });
 
     const markNewSeenLink = document.createElement("a");
@@ -437,6 +571,7 @@ async function initItemPage(url: URL) {
       await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
 
       clearNewHighlights(commentRows);
+      currentNewIdx = undefined;
 
       const stats = computeStats({
         commentIds,
@@ -454,6 +589,7 @@ async function initItemPage(url: URL) {
     toolbar.appendChild(continueLink);
     toolbar.appendChild(jumpNewLink);
     toolbar.appendChild(markNewSeenLink);
+    renderFloatingNewNav();
   }
 
   // Initialize toolbar immediately (before async new-count calc).

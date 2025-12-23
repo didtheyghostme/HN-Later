@@ -14,6 +14,10 @@ export type ThreadRecord = {
   addedAt: number; // epoch ms
   lastVisitedAt?: number; // epoch ms
   lastReadCommentId?: number; // numeric HN comment id
+  // When set, "new" comments ABOVE lastReadCommentId (in DOM order) are only considered new if their id is
+  // greater than this watermark. This allows "mark-to-here" to dismiss existing new comments above the
+  // checkpoint while still allowing future new replies (which will have larger ids) to show as new.
+  dismissNewAboveUntilId?: number; // numeric HN comment id
   // Baseline used to compute "new comments": a comment is considered "new" if its id > maxSeenCommentId.
   // IMPORTANT: This is an *explicitly acknowledged* baseline (e.g. via "Mark new as seen"), not updated on
   // every page load.
@@ -51,6 +55,7 @@ export async function upsertThread(input: {
     addedAt: existing?.addedAt ?? nowMs(),
     lastVisitedAt: existing?.lastVisitedAt,
     lastReadCommentId: existing?.lastReadCommentId,
+    dismissNewAboveUntilId: existing?.dismissNewAboveUntilId,
     maxSeenCommentId: existing?.maxSeenCommentId,
     cachedStats: existing?.cachedStats,
   };
@@ -85,6 +90,18 @@ export async function setLastReadCommentId(
   if (!existing) return;
 
   threadsById[storyId] = { ...existing, lastReadCommentId };
+  await setThreadsById(threadsById);
+}
+
+export async function setDismissNewAboveUntilId(
+  storyId: string,
+  dismissNewAboveUntilId: number | undefined,
+): Promise<void> {
+  const threadsById = await getThreadsById();
+  const existing = threadsById[storyId];
+  if (!existing) return;
+
+  threadsById[storyId] = { ...existing, dismissNewAboveUntilId };
   await setThreadsById(threadsById);
 }
 
@@ -126,6 +143,7 @@ export async function resetProgress(storyId: string): Promise<void> {
   threadsById[storyId] = {
     ...existing,
     lastReadCommentId: undefined,
+    dismissNewAboveUntilId: undefined,
     cachedStats: undefined,
   };
   await setThreadsById(threadsById);

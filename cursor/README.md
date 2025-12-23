@@ -61,6 +61,7 @@ WXT will run the extension in a dev browser profile with hot reload.
 ### Track progress on an item page
 
 - Use **mark-to-here** on any comment to set your “last read” marker.
+- mark-to-here also **dismisses existing “new” comments above that marker** (future new replies will still show as new).
 - The toolbar shows your progress as `read/total (%)`.
 
 ### Resume / new comments

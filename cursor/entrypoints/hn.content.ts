@@ -6,6 +6,7 @@ import {
   listThreads,
   removeThread,
   setCachedStats,
+  setDismissNewAboveUntilId,
   setLastReadCommentId,
   setVisitInfo,
   upsertThread,
@@ -129,22 +130,35 @@ function clearNewHighlights(rows: HTMLTableRowElement[]) {
 function applyNewHighlights(
   rows: HTMLTableRowElement[],
   previousMaxSeen: number | undefined,
+  options?: { lastReadCommentId?: number; dismissNewAboveUntilId?: number },
 ): { newCount: number; firstNewRow: HTMLTableRowElement | undefined } {
   clearNewHighlights(rows);
 
   if (previousMaxSeen == null) return { newCount: 0, firstNewRow: undefined };
 
+  const markerId = options?.lastReadCommentId;
+  const dismissUntil = options?.dismissNewAboveUntilId;
+  const markerRowIndex = markerId != null ? rows.findIndex((r) => Number(r.id) === markerId) : -1;
+
   let newCount = 0;
   let firstNewRow: HTMLTableRowElement | undefined;
 
-  for (const row of rows) {
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
     const id = Number(row.id);
     if (!Number.isFinite(id)) continue;
-    if (id > previousMaxSeen) {
-      row.classList.add("hn-later-new");
-      newCount += 1;
-      if (!firstNewRow) firstNewRow = row;
+
+    if (id <= previousMaxSeen) continue;
+
+    // If a dismissal watermark is set, suppress "new" ABOVE (and including) the marker row,
+    // unless the comment id is greater than the watermark (i.e., it arrived after the dismissal).
+    if (dismissUntil != null && markerRowIndex >= 0 && i <= markerRowIndex && id <= dismissUntil) {
+      continue;
     }
+
+    row.classList.add("hn-later-new");
+    newCount += 1;
+    if (!firstNewRow) firstNewRow = row;
   }
 
   return { newCount, firstNewRow };
@@ -244,6 +258,10 @@ function registerMessageListener() {
           const { newCount, firstNewRow } = applyNewHighlights(
             commentRows,
             thread?.maxSeenCommentId,
+            {
+              lastReadCommentId: thread?.lastReadCommentId,
+              dismissNewAboveUntilId: thread?.dismissNewAboveUntilId,
+            },
           );
           if (firstNewRow) {
             currentNewIdx = 0;
@@ -357,10 +375,23 @@ async function initItemPage(url: URL) {
       await setLastReadCommentId(storyIdStr, commentId);
       thread = { ...thread, lastReadCommentId: commentId };
 
+      // Dismiss existing "new" comments ABOVE (and including) this checkpoint.
+      // We store a watermark so future replies (with larger ids) can still be considered new.
+      const markerIdx = commentIds.indexOf(commentId);
+      const dismissUntil =
+        markerIdx >= 0 ? Math.max(...commentIds.slice(0, markerIdx + 1)) : undefined;
+      await setDismissNewAboveUntilId(storyIdStr, dismissUntil);
+      thread = { ...thread, dismissNewAboveUntilId: dismissUntil };
+
+      const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
+        lastReadCommentId: commentId,
+        dismissNewAboveUntilId: dismissUntil,
+      });
+
       const stats = computeStats({
         commentIds,
         lastReadCommentId: commentId,
-        newCount: thread.cachedStats?.newCount,
+        newCount,
       });
       await setCachedStats({ storyId: storyIdStr, stats });
       thread = { ...thread, cachedStats: stats };
@@ -429,6 +460,7 @@ async function initItemPage(url: URL) {
 
     const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
     await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+    await setDismissNewAboveUntilId(storyIdStr, undefined);
 
     clearNewHighlights(commentRows);
     currentNewIdx = undefined;
@@ -640,7 +672,10 @@ async function initItemPage(url: URL) {
       return;
     }
 
-    const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId);
+    const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
+      lastReadCommentId: thread.lastReadCommentId,
+      dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
+    });
 
     const stats = computeStats({
       commentIds,

@@ -71,24 +71,25 @@ function ensureStyles() {
       background: rgba(0,0,0,0.07);
     }
 
-    tr.hn-later-unread td.default { box-shadow: inset 4px 0 0 rgba(0, 128, 255, 0.32); }
-    tr.hn-later-highlight td.default { outline: 3px solid rgba(0, 128, 255, 0.65); outline-offset: 2px; }
+    tr.hn-later-unread td.default {
+      box-shadow: inset 4px 0 0 rgba(0, 102, 255, 0.22);
+    }
+
+    tr.hn-later-highlight td.default {
+      outline: 3px solid rgba(0, 102, 255, 0.85);
+      outline-offset: 2px;
+    }
 
     .hn-later-chip {
       display: inline-block;
       margin-left: 6px;
-      padding: 1px 6px;
-      border-radius: 999px;
-      font-size: 10px;
-      line-height: 14px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      vertical-align: baseline;
-    }
-    .hn-later-chip-new {
-      background: rgba(255, 102, 0, 0.16);
-      border: 1px solid rgba(255, 102, 0, 0.35);
-      color: #7c2d12;
+      color: rgb(255, 255, 255);
+      font-size: 9px;
+      font-weight: 700;
+      vertical-align: middle;
+      padding: 1px 4px;
+      background: rgb(0, 102, 255);
+      border-radius: 3px;
     }
 
     .hn-later-mark { margin-left: 6px; font-size: 10px; opacity: 0.85; }
@@ -147,8 +148,8 @@ function ensureNewChip(row: HTMLTableRowElement) {
 
   const chip = document.createElement("span");
   chip.dataset.hnLaterChip = "new";
-  chip.className = "hn-later-chip hn-later-chip-new";
-  chip.textContent = "NEW";
+  chip.className = "hn-later-chip";
+  chip.textContent = "[NEW]";
 
   // Prefer placing right after the "age" element (e.g., "3 hours ago") for fast scanning.
   const age = comhead.querySelector<HTMLElement>("span.age");
@@ -265,9 +266,11 @@ function scrollToRow(row: HTMLTableRowElement) {
   row.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+let focusedRow: HTMLTableRowElement | undefined;
 function highlightRow(row: HTMLTableRowElement, className: string) {
+  if (focusedRow && focusedRow !== row) focusedRow.classList.remove(className);
+  focusedRow = row;
   row.classList.add(className);
-  window.setTimeout(() => row.classList.remove(className), 2000);
 }
 
 function createToolbarContainer(): HTMLDivElement {

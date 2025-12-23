@@ -577,8 +577,6 @@ async function initItemPage(url: URL) {
 
     const saved = !!thread;
     const lastRead = thread?.lastReadCommentId;
-    const newCount = getNewRows().length;
-    const canNavNew = saved && newCount > 0;
 
     const stats = saved
       ? computeStats({
@@ -615,31 +613,9 @@ async function initItemPage(url: URL) {
       highlightRow(target, "hn-later-highlight");
     });
 
-    const jumpNewLink = document.createElement("a");
-    jumpNewLink.href = "#";
-    jumpNewLink.textContent = saved ? `Jump to new (${newCount})` : "Jump to new";
-    jumpNewLink.style.opacity = canNavNew ? "1" : "0.4";
-    jumpNewLink.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (!canNavNew) return;
-      jumpToNewIndex(0);
-    });
-
-    const markNewSeenLink = document.createElement("a");
-    markNewSeenLink.href = "#";
-    markNewSeenLink.textContent = "Mark new as seen";
-    markNewSeenLink.style.opacity = saved ? "1" : "0.4";
-    markNewSeenLink.addEventListener("click", async (e) => {
-      e.preventDefault();
-      if (!saved) return;
-      await markNewAsSeen();
-    });
-
     toolbar.appendChild(left);
     toolbar.appendChild(saveLink);
     toolbar.appendChild(continueLink);
-    toolbar.appendChild(jumpNewLink);
-    toolbar.appendChild(markNewSeenLink);
     renderFloatingNewNav();
   }
 

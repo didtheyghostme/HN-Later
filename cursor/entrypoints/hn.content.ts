@@ -92,6 +92,34 @@ function getCommentIdsInDomOrder(rows: HTMLTableRowElement[]): number[] {
   return ids;
 }
 
+function clearNewHighlights(rows: HTMLTableRowElement[]) {
+  for (const row of rows) row.classList.remove("hn-later-new");
+}
+
+function applyNewHighlights(
+  rows: HTMLTableRowElement[],
+  previousMaxSeen: number | undefined,
+): { newCount: number; firstNewRow: HTMLTableRowElement | undefined } {
+  clearNewHighlights(rows);
+
+  if (previousMaxSeen == null) return { newCount: 0, firstNewRow: undefined };
+
+  let newCount = 0;
+  let firstNewRow: HTMLTableRowElement | undefined;
+
+  for (const row of rows) {
+    const id = Number(row.id);
+    if (!Number.isFinite(id)) continue;
+    if (id > previousMaxSeen) {
+      row.classList.add("hn-later-new");
+      newCount += 1;
+      if (!firstNewRow) firstNewRow = row;
+    }
+  }
+
+  return { newCount, firstNewRow };
+}
+
 function computeStats(input: {
   commentIds: number[];
   lastReadCommentId: number | undefined;
@@ -152,10 +180,16 @@ function registerMessageListener() {
     (async () => {
       try {
         const url = new URL(window.location.href);
-        if (!isItemPage(url)) return;
+        if (!isItemPage(url)) {
+          sendResponse({ ok: true });
+          return;
+        }
 
         const currentStoryId = getStoryIdFromItemUrl(url);
-        if (!currentStoryId || !message.storyId || currentStoryId !== message.storyId) return;
+        if (!currentStoryId || !message.storyId || currentStoryId !== message.storyId) {
+          sendResponse({ ok: true });
+          return;
+        }
 
         const commentRows = getCommentRows();
         const commentIds = getCommentIdsInDomOrder(commentRows);
@@ -173,10 +207,11 @@ function registerMessageListener() {
         }
 
         if (message.type === "hnLater/jumpToNew") {
-          const firstNew = commentRows.find((r) => r.classList.contains("hn-later-new"));
-          if (firstNew) {
-            scrollToRow(firstNew);
-            highlightRow(firstNew, "hn-later-highlight");
+          const thread = await getThread(currentStoryId);
+          const { firstNewRow } = applyNewHighlights(commentRows, thread?.maxSeenCommentId);
+          if (firstNewRow) {
+            scrollToRow(firstNewRow);
+            highlightRow(firstNewRow, "hn-later-highlight");
           }
         }
 
@@ -299,32 +334,6 @@ async function initItemPage(url: URL) {
   const toolbar = createToolbarContainer();
   mountToolbarNearFirstComment(toolbar, firstCommentRow);
 
-  function clearNewHighlights() {
-    for (const row of commentRows) row.classList.remove("hn-later-new");
-  }
-
-  function applyNewHighlights(previousMaxSeen: number | undefined) {
-    clearNewHighlights();
-
-    if (!previousMaxSeen)
-      return { newCount: 0, firstNewRow: undefined as HTMLTableRowElement | undefined };
-
-    let newCount = 0;
-    let firstNewRow: HTMLTableRowElement | undefined;
-
-    for (const row of commentRows) {
-      const id = Number(row.id);
-      if (!Number.isFinite(id)) continue;
-      if (id > previousMaxSeen) {
-        row.classList.add("hn-later-new");
-        newCount += 1;
-        if (!firstNewRow) firstNewRow = row;
-      }
-    }
-
-    return { newCount, firstNewRow };
-  }
-
   function findContinueTarget(
     lastReadCommentId: number | undefined,
   ): HTMLTableRowElement | undefined {
@@ -338,7 +347,7 @@ async function initItemPage(url: URL) {
     if (thread) {
       await removeThread(storyIdStr);
       thread = undefined;
-      clearNewHighlights();
+      clearNewHighlights(commentRows);
       renderToolbar();
       return;
     }
@@ -416,10 +425,35 @@ async function initItemPage(url: URL) {
       highlightRow(firstNew, "hn-later-highlight");
     });
 
+    const markNewSeenLink = document.createElement("a");
+    markNewSeenLink.href = "#";
+    markNewSeenLink.textContent = "Mark new as seen";
+    markNewSeenLink.style.opacity = saved ? "1" : "0.4";
+    markNewSeenLink.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (!saved) return;
+
+      const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
+      await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+
+      clearNewHighlights(commentRows);
+
+      const stats = computeStats({
+        commentIds,
+        lastReadCommentId: thread?.lastReadCommentId,
+        newCount: 0,
+      });
+      await setCachedStats({ storyId: storyIdStr, stats });
+
+      thread = await getThread(storyIdStr);
+      renderToolbar();
+    });
+
     toolbar.appendChild(left);
     toolbar.appendChild(saveLink);
     toolbar.appendChild(continueLink);
     toolbar.appendChild(jumpNewLink);
+    toolbar.appendChild(markNewSeenLink);
   }
 
   // Initialize toolbar immediately (before async new-count calc).
@@ -437,7 +471,7 @@ async function initItemPage(url: URL) {
     if (thread.maxSeenCommentId == null && currentMax != null) {
       await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
 
-      clearNewHighlights();
+      clearNewHighlights(commentRows);
       const stats = computeStats({
         commentIds,
         lastReadCommentId: thread.lastReadCommentId,
@@ -451,7 +485,7 @@ async function initItemPage(url: URL) {
       return;
     }
 
-    const { newCount } = applyNewHighlights(thread.maxSeenCommentId);
+    const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId);
 
     const stats = computeStats({
       commentIds,

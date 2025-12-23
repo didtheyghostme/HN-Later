@@ -5,7 +5,7 @@ A **Manifest V3** Chrome extension for `news.ycombinator.com`:
 - Save threads to a **Read Later** list
 - Track comment reading progress with a **Mark-to-here** marker
 - Show **% read** per thread (saved)
-- Highlight **new comments since last visit**
+- Highlight **new comments** (new arrivals since you last acknowledged them)
 - **Continue** (resume where you left off) and **Jump to new**
 
 ## Tech stack
@@ -66,7 +66,9 @@ WXT will run the extension in a dev browser profile with hot reload.
 ### Resume / new comments
 
 - **Continue**: jumps to the next unread comment after your marker.
-- **Jump to new**: jumps to the first comment that’s new since your last visit (based on HN comment ids).
+- **Jump to new**: jumps to the first comment that’s new since your last time clicking **Mark new as seen** (based on HN comment ids).
+  - Page refresh/accidental visits do **not** clear “new”.
+  - Click **Mark new as seen** in the toolbar to acknowledge the current thread state and clear the “new” badge/highlights.
 
 ### Popup
 

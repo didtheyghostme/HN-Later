@@ -14,6 +14,9 @@ export type ThreadRecord = {
   addedAt: number; // epoch ms
   lastVisitedAt?: number; // epoch ms
   lastReadCommentId?: number; // numeric HN comment id
+  // Baseline used to compute "new comments": a comment is considered "new" if its id > maxSeenCommentId.
+  // IMPORTANT: This is an *explicitly acknowledged* baseline (e.g. via "Mark new as seen"), not updated on
+  // every page load.
   maxSeenCommentId?: number; // numeric HN comment id
   cachedStats?: ThreadStats;
 };
@@ -87,7 +90,8 @@ export async function setLastReadCommentId(
 
 export async function setVisitInfo(input: {
   storyId: string;
-  maxSeenCommentId: number | undefined;
+  // Optional: omit to only update lastVisitedAt without changing the "new comments" baseline.
+  maxSeenCommentId?: number;
   lastVisitedAt?: number;
 }): Promise<void> {
   const threadsById = await getThreadsById();
@@ -96,7 +100,7 @@ export async function setVisitInfo(input: {
 
   threadsById[input.storyId] = {
     ...existing,
-    maxSeenCommentId: input.maxSeenCommentId,
+    ...(input.maxSeenCommentId !== undefined ? { maxSeenCommentId: input.maxSeenCommentId } : {}),
     lastVisitedAt: input.lastVisitedAt ?? nowMs(),
   };
   await setThreadsById(threadsById);

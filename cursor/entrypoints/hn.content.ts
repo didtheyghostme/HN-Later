@@ -427,11 +427,31 @@ async function initItemPage(url: URL) {
 
   // If saved, compute new comments + refresh cached stats + persist visit info.
   if (thread) {
-    const previousMaxSeen = thread.maxSeenCommentId;
     const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
 
-    const { newCount } = applyNewHighlights(previousMaxSeen);
-    await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+    // Touch last-visited time, but DO NOT advance the "new comments" baseline on page load.
+    await setVisitInfo({ storyId: storyIdStr });
+
+    // If this thread was saved without a baseline (eg, saved from listing page), initialize it once
+    // so "new" is tracked from the first item-page visit onward.
+    if (thread.maxSeenCommentId == null && currentMax != null) {
+      await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+
+      clearNewHighlights();
+      const stats = computeStats({
+        commentIds,
+        lastReadCommentId: thread.lastReadCommentId,
+        newCount: 0,
+      });
+      await setCachedStats({ storyId: storyIdStr, stats });
+
+      // Refresh local thread copy for UI labels.
+      thread = await getThread(storyIdStr);
+      renderToolbar();
+      return;
+    }
+
+    const { newCount } = applyNewHighlights(thread.maxSeenCommentId);
 
     const stats = computeStats({
       commentIds,

@@ -347,14 +347,18 @@ function registerMessageListener() {
           );
           if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
           else clearUnreadGutters(commentRows);
-          if (firstNewRow) {
-            currentNewIdx = 0;
-            scrollToRow(firstNewRow);
-            highlightRow(firstNewRow, "hn-later-highlight");
 
-            // Best-effort sync for the floating new-nav label (it may not be mounted yet).
+          // Jump to first unread comment instead of first new
+          const unreadRows = commentRows.filter((r) => r.classList.contains("hn-later-unread"));
+          const firstUnreadRow = unreadRows[0];
+          if (firstUnreadRow) {
+            currentNewIdx = 0;
+            scrollToRow(firstUnreadRow);
+            highlightRow(firstUnreadRow, "hn-later-highlight");
+
+            // Best-effort sync for the floating nav label (it may not be mounted yet).
             const label = document.getElementById("hn-later-floating-new-label");
-            if (label) label.textContent = `New 1/${newCount}`;
+            if (label) label.textContent = `Unread 1/${unreadRows.length}`;
           }
         }
 
@@ -509,51 +513,67 @@ async function initItemPage(url: URL) {
     return commentRows.filter((r) => r.classList.contains("hn-later-new"));
   }
 
-  function jumpToNewIndex(idx: number) {
-    const newRows = getNewRows();
-    if (newRows.length === 0) return;
-    if (idx < 0 || idx >= newRows.length) return;
+  function getUnreadRows(): HTMLTableRowElement[] {
+    return commentRows.filter((r) => r.classList.contains("hn-later-unread"));
+  }
 
-    const target = newRows[idx];
+  function jumpToUnreadIndex(idx: number) {
+    const unreadRows = getUnreadRows();
+    if (unreadRows.length === 0) return;
+    if (idx < 0 || idx >= unreadRows.length) return;
+
+    const target = unreadRows[idx];
     currentNewIdx = idx;
     scrollToRow(target);
     highlightRow(target, "hn-later-highlight");
     renderFloatingNewNav();
   }
 
-  function jumpToNextNew() {
-    const newRows = getNewRows();
-    if (newRows.length === 0) return;
+  function jumpToNextUnread() {
+    const unreadRows = getUnreadRows();
+    if (unreadRows.length === 0) return;
 
-    const nextIdx = currentNewIdx == null ? 0 : (currentNewIdx + 1) % newRows.length;
-    jumpToNewIndex(nextIdx);
+    const nextIdx = currentNewIdx == null ? 0 : (currentNewIdx + 1) % unreadRows.length;
+    jumpToUnreadIndex(nextIdx);
   }
 
-  function jumpToPrevNew() {
-    const newRows = getNewRows();
-    if (newRows.length === 0) return;
+  function jumpToPrevUnread() {
+    const unreadRows = getUnreadRows();
+    if (unreadRows.length === 0) return;
 
     const prevIdx =
       currentNewIdx == null
-        ? newRows.length - 1
-        : (currentNewIdx - 1 + newRows.length) % newRows.length;
-    jumpToNewIndex(prevIdx);
+        ? unreadRows.length - 1
+        : (currentNewIdx - 1 + unreadRows.length) % unreadRows.length;
+    jumpToUnreadIndex(prevIdx);
   }
 
-  async function markNewAsSeen() {
+  async function markUnreadAsSeen() {
     if (!thread) return;
 
+    // Find the last unread comment to mark everything up to it as read
+    const unreadRows = getUnreadRows();
+    if (unreadRows.length === 0) return;
+
+    const unreadIds = unreadRows.map((r) => Number(r.id)).filter(Number.isFinite);
+    if (unreadIds.length === 0) return;
+
+    const lastUnreadId = Math.max(...unreadIds);
+    await setLastReadCommentId(storyIdStr, lastUnreadId);
+    thread = { ...thread, lastReadCommentId: lastUnreadId };
+
+    // Also mark all new comments as seen
     const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
     await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
     await setDismissNewAboveUntilId(storyIdStr, undefined);
 
     clearNewHighlights(commentRows);
     currentNewIdx = undefined;
-    applyUnreadGutters(commentRows, thread.lastReadCommentId);
+    applyUnreadGutters(commentRows, lastUnreadId);
 
     const stats = computeStats({
       commentIds,
-      lastReadCommentId: thread?.lastReadCommentId,
+      lastReadCommentId: lastUnreadId,
       newCount: 0,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
@@ -564,15 +584,15 @@ async function initItemPage(url: URL) {
 
   function renderFloatingNewNav() {
     const saved = !!thread;
-    const newRows = getNewRows();
-    const newCount = newRows.length;
+    const unreadRows = getUnreadRows();
+    const unreadCount = unreadRows.length;
 
-    if (!saved || newCount === 0) {
+    if (!saved || unreadCount === 0) {
       floatingNewNav.style.display = "none";
       return;
     }
 
-    if (currentNewIdx != null && (currentNewIdx < 0 || currentNewIdx >= newCount)) {
+    if (currentNewIdx != null && (currentNewIdx < 0 || currentNewIdx >= unreadCount)) {
       currentNewIdx = undefined;
     }
 
@@ -581,39 +601,41 @@ async function initItemPage(url: URL) {
 
     const prevBtn = document.createElement("button");
     prevBtn.type = "button";
-    prevBtn.textContent = "↑ new";
-    prevBtn.title = "Previous new comment";
+    prevBtn.textContent = "↑ unread";
+    prevBtn.title = "Previous unread comment";
     prevBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      jumpToPrevNew();
+      jumpToPrevUnread();
     });
 
     const label = document.createElement("span");
     label.id = "hn-later-floating-new-label";
     label.className = "hn-later-floating-label";
     label.textContent =
-      currentNewIdx == null ? `New ${newCount}` : `New ${currentNewIdx + 1}/${newCount}`;
+      currentNewIdx == null
+        ? `Unread ${unreadCount}`
+        : `Unread ${currentNewIdx + 1}/${unreadCount}`;
 
     const nextBtn = document.createElement("button");
     nextBtn.type = "button";
-    nextBtn.textContent = "↓ new";
-    nextBtn.title = "Next new comment";
+    nextBtn.textContent = "↓ unread";
+    nextBtn.title = "Next unread comment";
     nextBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      jumpToNextNew();
+      jumpToNextUnread();
     });
 
     const seenBtn = document.createElement("button");
     seenBtn.type = "button";
     seenBtn.className = "hn-later-floating-seen";
     seenBtn.textContent = "✓ seen";
-    seenBtn.title = "Mark new comments as seen";
+    seenBtn.title = "Mark all unread comments as seen";
     seenBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      void markNewAsSeen();
+      void markUnreadAsSeen();
     });
 
     floatingNewNav.appendChild(prevBtn);

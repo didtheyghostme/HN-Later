@@ -129,20 +129,29 @@ export async function setVisitInfo(input: {
   await setThreadsById(threadsById);
 }
 
-export async function addSeenNewCommentId(
-  storyId: string,
-  commentId: number,
-): Promise<void> {
+export async function addSeenNewCommentId(storyId: string, commentId: number): Promise<void> {
+  await addSeenNewCommentIds(storyId, [commentId]);
+}
+
+export async function addSeenNewCommentIds(storyId: string, commentIds: number[]): Promise<void> {
+  if (commentIds.length === 0) return;
+
   const threadsById = await getThreadsById();
   const existing = threadsById[storyId];
   if (!existing) return;
 
-  const currentIds = existing.seenNewCommentIds ?? [];
-  if (currentIds.includes(commentId)) return; // Already seen
+  const next = new Set(existing.seenNewCommentIds ?? []);
+  for (const id of commentIds) {
+    if (!Number.isFinite(id)) continue;
+    next.add(id);
+  }
+
+  // No-op if nothing changed.
+  if (next.size === (existing.seenNewCommentIds ?? []).length) return;
 
   threadsById[storyId] = {
     ...existing,
-    seenNewCommentIds: [...currentIds, commentId],
+    seenNewCommentIds: Array.from(next),
   };
   await setThreadsById(threadsById);
 }

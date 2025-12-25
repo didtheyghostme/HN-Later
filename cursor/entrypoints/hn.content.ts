@@ -2,7 +2,7 @@ import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser } from "wxt/browser";
 
 import {
-  addSeenNewCommentId,
+  addSeenNewCommentIds,
   getThread,
   listThreads,
   removeThread,
@@ -261,19 +261,32 @@ function computeStats(input: {
 }): ThreadStats {
   const totalComments = input.commentIds.length;
 
-  // Separate old comments (id <= maxSeenCommentId) from new comments
-  // Read progress is only tracked among old comments
-  const oldCommentIds =
-    input.maxSeenCommentId != null
-      ? input.commentIds.filter((id) => id <= input.maxSeenCommentId!)
-      : input.commentIds;
+  const maxSeen = input.maxSeenCommentId;
 
-  const idx = input.lastReadCommentId ? oldCommentIds.indexOf(input.lastReadCommentId) : -1;
-  const oldReadCount = idx >= 0 ? idx + 1 : 0;
+  // "Old" comments are those at/below the "new baseline".
+  // Reading progress is driven by a DOM-order checkpoint (lastReadCommentId), but that checkpoint may
+  // point at a *new* comment. In that case we still want to count all old comments above the checkpoint
+  // as read.
+  const markerIdx =
+    input.lastReadCommentId != null ? input.commentIds.indexOf(input.lastReadCommentId) : -1;
+  const prefix = markerIdx >= 0 ? input.commentIds.slice(0, markerIdx + 1) : [];
 
-  // New comments that have been acknowledged (maxSeenCommentId updated) count as read
-  const newAcknowledgedCount = input.newCount != null ? 0 : 0; // New comments not yet seen don't add to read count
-  const readCount = oldReadCount + newAcknowledgedCount;
+  const oldReadCount =
+    markerIdx >= 0
+      ? maxSeen != null
+        ? prefix.filter((id) => id <= maxSeen).length
+        : prefix.length
+      : 0;
+
+  // Overall progress counts acknowledged new comments as read.
+  // - totalNew: all comments with id > maxSeen
+  // - stillNew: the count currently shown as "new" (unacknowledged / unread)
+  // => acknowledgedNew = totalNew - stillNew
+  const totalNew = maxSeen != null ? input.commentIds.filter((id) => id > maxSeen).length : 0;
+  const stillNew = maxSeen != null ? (input.newCount ?? totalNew) : 0;
+  const newAcknowledgedCount = maxSeen != null ? Math.max(0, totalNew - stillNew) : 0;
+
+  const readCount = Math.min(totalComments, oldReadCount + newAcknowledgedCount);
 
   const percent = totalComments === 0 ? 0 : Math.round((readCount / totalComments) * 100);
 
@@ -473,30 +486,40 @@ async function initItemPage(url: URL) {
     return true;
   }
 
-  // Handler for "seen" click on NEW comments - acknowledges THIS specific new comment
+  // Handler for "seen" click on NEW comments - acknowledges a range of new comments up to this one.
   async function handleSeenNewComment(commentId: number) {
-    // Acknowledge this specific new comment by adding to seenNewCommentIds
+    // "Seen" should behave like "mark-to-here" for reading progress: advance the checkpoint to at least
+    // this row in DOM order (never move backwards).
+    const clickedIdx = commentIds.indexOf(commentId);
+    if (clickedIdx < 0) return;
+
+    const currentMarkerIdx =
+      thread?.lastReadCommentId != null ? commentIds.indexOf(thread.lastReadCommentId) : -1;
+    const nextMarkerIdx = Math.max(currentMarkerIdx, clickedIdx);
+    const nextLastReadCommentId = commentIds[nextMarkerIdx];
+
+    // Acknowledge all currently-new comments up to (and including) the clicked one in DOM order.
+    const idsToAck: number[] = [];
+    for (let i = 0; i <= clickedIdx; i += 1) {
+      const row = commentRows[i];
+      if (!row?.classList.contains("hn-later-new")) continue;
+      const id = Number(row.id);
+      if (Number.isFinite(id)) idsToAck.push(id);
+    }
+
+    // Ensure thread exists, then record acknowledgements.
     thread = await upsertThread({ id: storyIdStr, title, url: itemUrl });
-    await addSeenNewCommentId(storyIdStr, commentId);
+
+    // Persist the advanced checkpoint.
+    if (nextLastReadCommentId != null && nextLastReadCommentId !== thread.lastReadCommentId) {
+      await setLastReadCommentId(storyIdStr, nextLastReadCommentId);
+      thread = { ...thread, lastReadCommentId: nextLastReadCommentId };
+    }
+
+    await addSeenNewCommentIds(storyIdStr, idsToAck.length ? idsToAck : [commentId]);
 
     // Refresh thread to get updated seenNewCommentIds
     thread = await getThread(storyIdStr);
-
-    // Auto-cleanup: If ALL new comments are now acknowledged, graduate them
-    // by updating maxSeenCommentId and clearing seenNewCommentIds
-    const maxSeen = thread?.maxSeenCommentId;
-    const seenNewIds = new Set(thread?.seenNewCommentIds ?? []);
-    if (maxSeen != null && seenNewIds.size > 0) {
-      const newCommentIds = commentIds.filter((id) => id > maxSeen);
-      const allNewSeen = newCommentIds.every((id) => seenNewIds.has(id));
-
-      if (allNewSeen && newCommentIds.length > 0) {
-        // Graduate: update baseline to current max, clear individual acknowledgments
-        const currentMax = Math.max(...commentIds);
-        await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
-        thread = await getThread(storyIdStr);
-      }
-    }
 
     // Reapply new highlights with updated state
     const { newCount } = applyNewHighlights(commentRows, thread?.maxSeenCommentId, {
@@ -505,6 +528,16 @@ async function initItemPage(url: URL) {
       seenNewCommentIds: thread?.seenNewCommentIds,
     });
     applyUnreadGutters(commentRows, thread?.lastReadCommentId);
+
+    // Auto-cleanup: if there are no remaining new comments, graduate the baseline to current max.
+    const maxSeen = thread?.maxSeenCommentId;
+    if (maxSeen != null && newCount === 0 && commentIds.length) {
+      const currentMax = Math.max(...commentIds);
+      if (currentMax > maxSeen) {
+        await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+        thread = await getThread(storyIdStr);
+      }
+    }
 
     const stats = computeStats({
       commentIds,
@@ -702,6 +735,7 @@ async function initItemPage(url: URL) {
     const saved = !!thread;
     const unreadRows = getUnreadRows();
     const unreadCount = unreadRows.length;
+    const newCount = getNewRows().length;
 
     if (!saved || unreadCount === 0) {
       floatingNewNav.style.display = "none";
@@ -728,10 +762,11 @@ async function initItemPage(url: URL) {
     const label = document.createElement("span");
     label.id = "hn-later-floating-new-label";
     label.className = "hn-later-floating-label";
+    const suffix = newCount > 0 ? ` (${newCount} new)` : "";
     label.textContent =
       currentNewIdx == null
-        ? `Unread ${unreadCount}`
-        : `Unread ${currentNewIdx + 1}/${unreadCount}`;
+        ? `Unread ${unreadCount}${suffix}`
+        : `Unread ${currentNewIdx + 1}/${unreadCount}${suffix}`;
 
     const nextBtn = document.createElement("button");
     nextBtn.type = "button";
@@ -817,9 +852,13 @@ async function initItemPage(url: URL) {
 
     const left = document.createElement("span");
     left.className = "hn-later-pill";
-    left.textContent = saved
-      ? `Progress: ${stats?.readCount ?? 0}/${stats?.totalComments ?? 0} (${stats?.percent ?? 0}%)`
-      : "Not saved — save to track progress";
+    if (!saved) {
+      left.textContent = "Not saved — save to track progress";
+    } else {
+      const base = `Progress: ${stats?.readCount ?? 0}/${stats?.totalComments ?? 0} (${stats?.percent ?? 0}%)`;
+      const n = stats?.newCount ?? 0;
+      left.textContent = n > 0 ? `${base} · ${n} new` : base;
+    }
 
     const saveLink = document.createElement("a");
     saveLink.href = "#";

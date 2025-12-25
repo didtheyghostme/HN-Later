@@ -2,6 +2,7 @@ import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser } from "wxt/browser";
 
 import {
+  addSeenNewCommentId,
   getThread,
   listThreads,
   removeThread,
@@ -183,7 +184,11 @@ function clearNewHighlights(rows: HTMLTableRowElement[]) {
 function applyNewHighlights(
   rows: HTMLTableRowElement[],
   previousMaxSeen: number | undefined,
-  options?: { lastReadCommentId?: number; dismissNewAboveUntilId?: number },
+  options?: {
+    lastReadCommentId?: number;
+    dismissNewAboveUntilId?: number;
+    seenNewCommentIds?: number[];
+  },
 ): { newCount: number; firstNewRow: HTMLTableRowElement | undefined } {
   clearNewHighlights(rows);
 
@@ -191,6 +196,7 @@ function applyNewHighlights(
 
   const markerId = options?.lastReadCommentId;
   const dismissUntil = options?.dismissNewAboveUntilId;
+  const seenNewIds = new Set(options?.seenNewCommentIds ?? []);
   const markerRowIndex = markerId != null ? rows.findIndex((r) => Number(r.id) === markerId) : -1;
 
   let newCount = 0;
@@ -202,6 +208,9 @@ function applyNewHighlights(
     if (!Number.isFinite(id)) continue;
 
     if (id <= previousMaxSeen) continue;
+
+    // Skip if this new comment has been individually acknowledged
+    if (seenNewIds.has(id)) continue;
 
     // If a dismissal watermark is set, suppress "new" ABOVE (and including) the marker row,
     // unless the comment id is greater than the watermark (i.e., it arrived after the dismissal).
@@ -247,11 +256,25 @@ function applyUnreadGutters(rows: HTMLTableRowElement[], lastReadCommentId: numb
 function computeStats(input: {
   commentIds: number[];
   lastReadCommentId: number | undefined;
+  maxSeenCommentId: number | undefined;
   newCount?: number;
 }): ThreadStats {
   const totalComments = input.commentIds.length;
-  const idx = input.lastReadCommentId ? input.commentIds.indexOf(input.lastReadCommentId) : -1;
-  const readCount = idx >= 0 ? idx + 1 : 0;
+
+  // Separate old comments (id <= maxSeenCommentId) from new comments
+  // Read progress is only tracked among old comments
+  const oldCommentIds =
+    input.maxSeenCommentId != null
+      ? input.commentIds.filter((id) => id <= input.maxSeenCommentId!)
+      : input.commentIds;
+
+  const idx = input.lastReadCommentId ? oldCommentIds.indexOf(input.lastReadCommentId) : -1;
+  const oldReadCount = idx >= 0 ? idx + 1 : 0;
+
+  // New comments that have been acknowledged (maxSeenCommentId updated) count as read
+  const newAcknowledgedCount = input.newCount != null ? 0 : 0; // New comments not yet seen don't add to read count
+  const readCount = oldReadCount + newAcknowledgedCount;
+
   const percent = totalComments === 0 ? 0 : Math.round((readCount / totalComments) * 100);
 
   return {
@@ -343,6 +366,7 @@ function registerMessageListener() {
             {
               lastReadCommentId: thread?.lastReadCommentId,
               dismissNewAboveUntilId: thread?.dismissNewAboveUntilId,
+              seenNewCommentIds: thread?.seenNewCommentIds,
             },
           );
           if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
@@ -440,7 +464,114 @@ async function initItemPage(url: URL) {
   // Determine saved state.
   let thread: ThreadRecord | undefined = await getThread(storyIdStr);
 
-  // Inject per-comment mark-to-here controls.
+  // Helper to check if a comment is "new" (id > maxSeenCommentId and not individually acknowledged)
+  function isNewComment(commentId: number): boolean {
+    if (thread?.maxSeenCommentId == null) return false;
+    if (commentId <= thread.maxSeenCommentId) return false;
+    // Check if individually acknowledged
+    if (thread.seenNewCommentIds?.includes(commentId)) return false;
+    return true;
+  }
+
+  // Handler for "seen" click on NEW comments - acknowledges THIS specific new comment
+  async function handleSeenNewComment(commentId: number) {
+    // Acknowledge this specific new comment by adding to seenNewCommentIds
+    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl });
+    await addSeenNewCommentId(storyIdStr, commentId);
+
+    // Refresh thread to get updated seenNewCommentIds
+    thread = await getThread(storyIdStr);
+
+    // Auto-cleanup: If ALL new comments are now acknowledged, graduate them
+    // by updating maxSeenCommentId and clearing seenNewCommentIds
+    const maxSeen = thread?.maxSeenCommentId;
+    const seenNewIds = new Set(thread?.seenNewCommentIds ?? []);
+    if (maxSeen != null && seenNewIds.size > 0) {
+      const newCommentIds = commentIds.filter((id) => id > maxSeen);
+      const allNewSeen = newCommentIds.every((id) => seenNewIds.has(id));
+
+      if (allNewSeen && newCommentIds.length > 0) {
+        // Graduate: update baseline to current max, clear individual acknowledgments
+        const currentMax = Math.max(...commentIds);
+        await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+        thread = await getThread(storyIdStr);
+      }
+    }
+
+    // Reapply new highlights with updated state
+    const { newCount } = applyNewHighlights(commentRows, thread?.maxSeenCommentId, {
+      lastReadCommentId: thread?.lastReadCommentId,
+      dismissNewAboveUntilId: thread?.dismissNewAboveUntilId,
+      seenNewCommentIds: thread?.seenNewCommentIds,
+    });
+    applyUnreadGutters(commentRows, thread?.lastReadCommentId);
+
+    const stats = computeStats({
+      commentIds,
+      lastReadCommentId: thread?.lastReadCommentId,
+      maxSeenCommentId: thread?.maxSeenCommentId,
+      newCount,
+    });
+    await setCachedStats({ storyId: storyIdStr, stats });
+
+    thread = await getThread(storyIdStr);
+    updateMarkLabels();
+    renderToolbar();
+  }
+
+  // Handler for "mark-to-here" click on OLD comments
+  async function handleMarkToHere(commentId: number) {
+    // Marking progress implies you care about returning: auto-save the thread.
+    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl });
+    await setLastReadCommentId(storyIdStr, commentId);
+    thread = { ...thread, lastReadCommentId: commentId };
+
+    // Dismiss existing "new" comments ABOVE (and including) this checkpoint.
+    // We store a watermark so future replies (with larger ids) can still be considered new.
+    const markerIdx = commentIds.indexOf(commentId);
+    const dismissUntil =
+      markerIdx >= 0 ? Math.max(...commentIds.slice(0, markerIdx + 1)) : undefined;
+    await setDismissNewAboveUntilId(storyIdStr, dismissUntil);
+    thread = { ...thread, dismissNewAboveUntilId: dismissUntil };
+
+    const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
+      lastReadCommentId: commentId,
+      dismissNewAboveUntilId: dismissUntil,
+      seenNewCommentIds: thread.seenNewCommentIds,
+    });
+    applyUnreadGutters(commentRows, commentId);
+
+    const stats = computeStats({
+      commentIds,
+      lastReadCommentId: commentId,
+      maxSeenCommentId: thread.maxSeenCommentId,
+      newCount,
+    });
+    await setCachedStats({ storyId: storyIdStr, stats });
+    thread = { ...thread, cachedStats: stats };
+
+    // Update toolbar display if present.
+    renderToolbar();
+  }
+
+  // Update mark link labels based on whether comment is new or old
+  function updateMarkLabels() {
+    for (const row of commentRows) {
+      const commentId = Number(row.id);
+      if (!Number.isFinite(commentId)) continue;
+
+      const comhead = row.querySelector("span.comhead");
+      if (!comhead) continue;
+
+      const mark = comhead.querySelector<HTMLAnchorElement>(`a[data-hn-later-mark="${commentId}"]`);
+      if (!mark) continue;
+
+      const isNew = isNewComment(commentId);
+      mark.textContent = isNew ? "seen" : "mark-to-here";
+    }
+  }
+
+  // Inject per-comment mark-to-here/seen controls.
   for (const row of commentRows) {
     const commentId = Number(row.id);
     if (!Number.isFinite(commentId)) continue;
@@ -449,44 +580,27 @@ async function initItemPage(url: URL) {
     if (!comhead) continue;
     if (comhead.querySelector(`a[data-hn-later-mark="${commentId}"]`)) continue;
 
+    const isNew = isNewComment(commentId);
+
     const mark = document.createElement("a");
     mark.href = "#";
     mark.className = "hn-later-mark";
     mark.dataset.hnLaterMark = String(commentId);
-    mark.textContent = "mark-to-here";
+    mark.textContent = isNew ? "seen" : "mark-to-here";
     mark.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
 
-      // Marking progress implies you care about returning: auto-save the thread.
-      thread = await upsertThread({ id: storyIdStr, title, url: itemUrl });
-      await setLastReadCommentId(storyIdStr, commentId);
-      thread = { ...thread, lastReadCommentId: commentId };
+      // Check current state (may have changed since page load)
+      const currentlyNew = isNewComment(commentId);
 
-      // Dismiss existing "new" comments ABOVE (and including) this checkpoint.
-      // We store a watermark so future replies (with larger ids) can still be considered new.
-      const markerIdx = commentIds.indexOf(commentId);
-      const dismissUntil =
-        markerIdx >= 0 ? Math.max(...commentIds.slice(0, markerIdx + 1)) : undefined;
-      await setDismissNewAboveUntilId(storyIdStr, dismissUntil);
-      thread = { ...thread, dismissNewAboveUntilId: dismissUntil };
-
-      const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
-        lastReadCommentId: commentId,
-        dismissNewAboveUntilId: dismissUntil,
-      });
-      applyUnreadGutters(commentRows, commentId);
-
-      const stats = computeStats({
-        commentIds,
-        lastReadCommentId: commentId,
-        newCount,
-      });
-      await setCachedStats({ storyId: storyIdStr, stats });
-      thread = { ...thread, cachedStats: stats };
-
-      // Update toolbar display if present.
-      renderToolbar();
+      if (currentlyNew) {
+        // NEW comment: acknowledge THIS specific new comment
+        await handleSeenNewComment(commentId);
+      } else {
+        // OLD comment: mark reading progress to here
+        await handleMarkToHere(commentId);
+      }
     });
 
     comhead.appendChild(mark);
@@ -574,11 +688,13 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       lastReadCommentId: lastUnreadId,
+      maxSeenCommentId: currentMax,
       newCount: 0,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
     thread = await getThread(storyIdStr);
+    updateMarkLabels();
     renderToolbar();
   }
 
@@ -673,12 +789,14 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       lastReadCommentId: thread.lastReadCommentId,
+      maxSeenCommentId: currentMax,
       newCount: 0,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
     thread = await getThread(storyIdStr);
     if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
+    updateMarkLabels();
     renderToolbar();
   }
 
@@ -692,6 +810,7 @@ async function initItemPage(url: URL) {
       ? computeStats({
           commentIds,
           lastReadCommentId: lastRead,
+          maxSeenCommentId: thread?.maxSeenCommentId,
           newCount: thread?.cachedStats?.newCount,
         })
       : undefined;
@@ -748,6 +867,7 @@ async function initItemPage(url: URL) {
       const stats = computeStats({
         commentIds,
         lastReadCommentId: thread.lastReadCommentId,
+        maxSeenCommentId: currentMax,
         newCount: 0,
       });
       await setCachedStats({ storyId: storyIdStr, stats });
@@ -755,6 +875,7 @@ async function initItemPage(url: URL) {
       // Refresh local thread copy for UI labels.
       thread = await getThread(storyIdStr);
       if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
+      updateMarkLabels();
       renderToolbar();
       return;
     }
@@ -762,18 +883,21 @@ async function initItemPage(url: URL) {
     const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
       lastReadCommentId: thread.lastReadCommentId,
       dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
+      seenNewCommentIds: thread.seenNewCommentIds,
     });
     applyUnreadGutters(commentRows, thread.lastReadCommentId);
 
     const stats = computeStats({
       commentIds,
       lastReadCommentId: thread.lastReadCommentId,
+      maxSeenCommentId: thread.maxSeenCommentId,
       newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
     // Refresh local thread copy for UI labels.
     thread = await getThread(storyIdStr);
+    updateMarkLabels();
     renderToolbar();
   }
 }

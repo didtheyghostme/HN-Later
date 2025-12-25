@@ -22,6 +22,9 @@ export type ThreadRecord = {
   // IMPORTANT: This is an *explicitly acknowledged* baseline (e.g. via "Mark new as seen"), not updated on
   // every page load.
   maxSeenCommentId?: number; // numeric HN comment id
+  // Set of individually acknowledged new comment IDs. A new comment (id > maxSeenCommentId) is still
+  // considered "new" unless its ID is in this set. Cleared when maxSeenCommentId is updated.
+  seenNewCommentIds?: number[];
   cachedStats?: ThreadStats;
 };
 
@@ -57,6 +60,7 @@ export async function upsertThread(input: {
     lastReadCommentId: existing?.lastReadCommentId,
     dismissNewAboveUntilId: existing?.dismissNewAboveUntilId,
     maxSeenCommentId: existing?.maxSeenCommentId,
+    seenNewCommentIds: existing?.seenNewCommentIds,
     cachedStats: existing?.cachedStats,
   };
 
@@ -117,8 +121,28 @@ export async function setVisitInfo(input: {
 
   threadsById[input.storyId] = {
     ...existing,
-    ...(input.maxSeenCommentId !== undefined ? { maxSeenCommentId: input.maxSeenCommentId } : {}),
+    ...(input.maxSeenCommentId !== undefined
+      ? { maxSeenCommentId: input.maxSeenCommentId, seenNewCommentIds: undefined }
+      : {}),
     lastVisitedAt: input.lastVisitedAt ?? nowMs(),
+  };
+  await setThreadsById(threadsById);
+}
+
+export async function addSeenNewCommentId(
+  storyId: string,
+  commentId: number,
+): Promise<void> {
+  const threadsById = await getThreadsById();
+  const existing = threadsById[storyId];
+  if (!existing) return;
+
+  const currentIds = existing.seenNewCommentIds ?? [];
+  if (currentIds.includes(commentId)) return; // Already seen
+
+  threadsById[storyId] = {
+    ...existing,
+    seenNewCommentIds: [...currentIds, commentId],
   };
   await setThreadsById(threadsById);
 }
@@ -144,6 +168,7 @@ export async function resetProgress(storyId: string): Promise<void> {
     ...existing,
     lastReadCommentId: undefined,
     dismissNewAboveUntilId: undefined,
+    seenNewCommentIds: undefined,
     cachedStats: undefined,
   };
   await setThreadsById(threadsById);

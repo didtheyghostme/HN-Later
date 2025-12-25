@@ -7,6 +7,7 @@ A **Manifest V3** Chrome extension for `news.ycombinator.com`:
 - Show **% read** per thread (saved)
 - Highlight **new comments** (new arrivals since you last acknowledged them)
 - **Continue** (resume where you left off) and **Jump to new**
+- Navigate through **unread comments** with a floating navigator
 
 ## Tech stack
 
@@ -18,7 +19,7 @@ A **Manifest V3** Chrome extension for `news.ycombinator.com`:
 
 ### Requirements
 
-- Node.js 20+ (WXT/Vite may warn if you’re on an older 20.x patch)
+- Node.js 20+ (WXT/Vite may warn if you're on an older 20.x patch)
 
 ### Install
 
@@ -60,18 +61,21 @@ WXT will run the extension in a dev browser profile with hot reload.
 
 ### Track progress on an item page
 
-- Use **mark-to-here** on any comment to set your “last read” marker.
-- mark-to-here also **dismisses existing “new” comments above that marker** (future new replies will still show as new).
+- Use **mark-to-here** on any comment to set your "last read" marker.
+- **mark-to-here** also **dismisses existing "new" comments above that marker** (future new replies will still show as new).
 - The toolbar shows your progress as `read/total (%)`.
+- Unread comments (below your marker) show a blue gutter bar on the left.
+- New comments show a **[NEW]** chip next to the timestamp.
 
 ### Resume / new comments
 
-- **Continue**: jumps to the next unread comment after your marker.
-- **Jump to new**: jumps to the first comment that’s new since your last time clicking **Mark new as seen** (based on HN comment ids).
-  - A small floating **↑/↓ new** navigator appears at the bottom-right when there are new comments, so you can step through them without scrolling back to the top.
-  - You can also click **✓ seen** in the floating navigator to acknowledge/clear the current set of new comments.
-  - Page refresh/accidental visits do **not** clear “new”.
-  - Click **Mark new as seen** in the toolbar to acknowledge the current thread state and clear the “new” badge/highlights.
+- **Continue**: jumps to your last read marker (or the first comment if you haven't set one).
+- **Jump to new**: jumps to the first unread comment (includes both new comments and unread old comments below your marker).
+  - A small floating **↑/↓ unread** navigator appears at the bottom-right when there are unread comments, so you can step through them without scrolling back to the top.
+  - The navigator shows "Unread X/Y" and optionally "(N new)" if there are new comments.
+  - You can click **✓ seen** in the floating navigator to mark all unread comments as seen and clear the "new" badge/highlights.
+  - Page refresh/accidental visits do **not** clear "new".
+  - Click **seen** on individual new comments to acknowledge them (this also advances your reading marker if needed).
 
 ### Popup
 
@@ -85,4 +89,5 @@ Click the extension icon to open the popup:
 ## Notes / limitations
 
 - Progress tracking is **marker-based** (not per-comment toggles).
-- HN comment threads load as a single page; there’s no multi-page comment pagination to handle.
+- HN comment threads load as a single page; there's no multi-page comment pagination to handle.
+- New comments are tracked by comparing comment IDs to a baseline (`maxSeenCommentId`), which is only updated when you explicitly acknowledge comments (via "seen" or "✓ seen"), not on every page visit.

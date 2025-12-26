@@ -697,19 +697,24 @@ async function initItemPage(url: URL) {
 
   async function markUnreadAsSeen() {
     if (!thread) return;
+    if (commentIds.length === 0) return;
 
     // Mark the LAST comment in DOM order as read so everything is marked as seen.
-    // We use the last comment in DOM order (not max ID) because applyUnreadGutters
-    // works by DOM position, not by comment ID.
+    // IMPORTANT:
+    // - Reading progress ("unread") is DOM-order based (see applyUnreadGutters).
+    // - HN comment IDs are roughly time-ordered, but the newest ID can appear anywhere in the DOM
+    //   (e.g. a late reply under an early parent).
+    // So for "mark all unread as seen", advance the read checkpoint to the bottom of the page in
+    // DOM order (never by max numeric ID).
+
     const lastCommentId = commentIds[commentIds.length - 1];
-    if (lastCommentId == null) return;
 
     await setLastReadCommentId(storyIdStr, lastCommentId);
     thread = { ...thread, lastReadCommentId: lastCommentId };
 
     // Also mark all new comments as seen
-    const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
-    await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+    const maxSeenCommentId = Math.max(...commentIds);
+    await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: maxSeenCommentId });
     await setDismissNewAboveUntilId(storyIdStr, undefined);
 
     clearNewHighlights(commentRows);
@@ -719,7 +724,7 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       lastReadCommentId: lastCommentId,
-      maxSeenCommentId: currentMax,
+      maxSeenCommentId,
       newCount: 0,
     });
     await setCachedStats({ storyId: storyIdStr, stats });

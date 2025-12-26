@@ -698,16 +698,14 @@ async function initItemPage(url: URL) {
   async function markUnreadAsSeen() {
     if (!thread) return;
 
-    // Find the last unread comment to mark everything up to it as read
-    const unreadRows = getUnreadRows();
-    if (unreadRows.length === 0) return;
+    // Mark the LAST comment in DOM order as read so everything is marked as seen.
+    // We use the last comment in DOM order (not max ID) because applyUnreadGutters
+    // works by DOM position, not by comment ID.
+    const lastCommentId = commentIds[commentIds.length - 1];
+    if (lastCommentId == null) return;
 
-    const unreadIds = unreadRows.map((r) => Number(r.id)).filter(Number.isFinite);
-    if (unreadIds.length === 0) return;
-
-    const lastUnreadId = Math.max(...unreadIds);
-    await setLastReadCommentId(storyIdStr, lastUnreadId);
-    thread = { ...thread, lastReadCommentId: lastUnreadId };
+    await setLastReadCommentId(storyIdStr, lastCommentId);
+    thread = { ...thread, lastReadCommentId: lastCommentId };
 
     // Also mark all new comments as seen
     const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
@@ -716,11 +714,11 @@ async function initItemPage(url: URL) {
 
     clearNewHighlights(commentRows);
     currentNewIdx = undefined;
-    applyUnreadGutters(commentRows, lastUnreadId);
+    applyUnreadGutters(commentRows, lastCommentId);
 
     const stats = computeStats({
       commentIds,
-      lastReadCommentId: lastUnreadId,
+      lastReadCommentId: lastCommentId,
       maxSeenCommentId: currentMax,
       newCount: 0,
     });

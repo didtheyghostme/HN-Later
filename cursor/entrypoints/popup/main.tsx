@@ -4,7 +4,17 @@ import { browser, type Browser } from "wxt/browser";
 
 import "../../assets/tailwind.css";
 
-import { listThreads, removeThread, resetProgress, type ThreadRecord } from "../../utils/hnStorage";
+import {
+  listThreads,
+  removeThread,
+  resetProgress,
+  restoreThread,
+  setFrozenProgress,
+  setThreadStatus,
+  type FrozenProgress,
+  type ThreadRecord,
+  type ThreadStatus,
+} from "../../utils/hnStorage";
 
 type BgResponse = { ok: boolean; tabId?: number; error?: string };
 
@@ -17,10 +27,15 @@ function formatPercent(percent: number | undefined) {
   return `${percent}%`;
 }
 
+function titleCase(s: string) {
+  return s.length ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
 function App() {
   const [threads, setThreads] = React.useState<ThreadRecord[]>([]);
   const [query, setQuery] = React.useState("");
   const [status, setStatus] = React.useState<string | null>(null);
+  const [view, setView] = React.useState<ThreadStatus | "all">("active");
 
   const refresh = React.useCallback(async () => {
     const next = await listThreads();
@@ -43,9 +58,11 @@ function App() {
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return threads;
-    return threads.filter((t) => t.title.toLowerCase().includes(q));
-  }, [threads, query]);
+    let base = threads;
+    if (view !== "all") base = base.filter((t) => (t.status ?? "active") === view);
+    if (!q) return base;
+    return base.filter((t) => t.title.toLowerCase().includes(q));
+  }, [threads, query, view]);
 
   async function onOpen(storyId: string) {
     setStatus(null);
@@ -65,6 +82,29 @@ function App() {
     if (!res.ok) setStatus(res.error ?? "Failed to jump to new");
   }
 
+  async function onFinish(storyId: string) {
+    setStatus(null);
+    const res = await sendToBackground({ type: "hnLater/finish", storyId });
+    if (!res.ok) setStatus(res.error ?? "Failed to finish");
+  }
+
+  async function onDismiss(thread: ThreadRecord) {
+    setStatus(null);
+    const stats = thread.cachedStats;
+    const frozen: FrozenProgress | undefined = stats
+      ? { totalComments: stats.totalComments, readCount: stats.readCount, percent: stats.percent }
+      : undefined;
+    await setThreadStatus(thread.id, "dismissed");
+    await setFrozenProgress(thread.id, frozen);
+    await refresh();
+  }
+
+  async function onRestore(storyId: string) {
+    setStatus(null);
+    await restoreThread(storyId);
+    await refresh();
+  }
+
   async function onReset(storyId: string) {
     setStatus(null);
     await resetProgress(storyId);
@@ -82,6 +122,33 @@ function App() {
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold">HN Later</div>
         <div className="text-xs opacity-70">{threads.length} saved</div>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <button
+          className={view === "active" ? "btn btn-xs btn-primary" : "btn btn-xs btn-ghost"}
+          onClick={() => setView("active")}
+        >
+          Active
+        </button>
+        <button
+          className={view === "finished" ? "btn btn-xs btn-primary" : "btn btn-xs btn-ghost"}
+          onClick={() => setView("finished")}
+        >
+          Finished
+        </button>
+        <button
+          className={view === "dismissed" ? "btn btn-xs btn-primary" : "btn btn-xs btn-ghost"}
+          onClick={() => setView("dismissed")}
+        >
+          Dismissed
+        </button>
+        <button
+          className={view === "all" ? "btn btn-xs btn-primary" : "btn btn-xs btn-ghost"}
+          onClick={() => setView("all")}
+        >
+          All
+        </button>
       </div>
 
       <div className="mt-2">
@@ -106,17 +173,31 @@ function App() {
                 <div className="min-w-0 flex-1">
                   <div className="line-clamp-2 text-sm font-medium">{t.title}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] opacity-70">
-                    <span className="badge badge-ghost badge-sm">
-                      {formatPercent(t.cachedStats?.percent)}
-                    </span>
-                    <span>
-                      {t.cachedStats
-                        ? `${t.cachedStats.readCount}/${t.cachedStats.totalComments} read`
-                        : "No progress yet"}
-                    </span>
+                    {(() => {
+                      const s = (t.status ?? "active") as ThreadStatus;
+                      const progress =
+                        s === "active" ? t.cachedStats : (t.frozenProgress ?? t.cachedStats);
+                      return (
+                        <>
+                          <span className="badge badge-ghost badge-sm">
+                            {formatPercent(progress?.percent)}
+                          </span>
+                          <span>
+                            {progress
+                              ? `${progress.readCount}/${progress.totalComments} read`
+                              : "No progress yet"}
+                          </span>
+                        </>
+                      );
+                    })()}
                     {t.cachedStats?.newCount != null ? (
                       <span className="badge badge-warning badge-sm">
                         {t.cachedStats.newCount} new
+                      </span>
+                    ) : null}
+                    {(t.status ?? "active") !== "active" ? (
+                      <span className="badge badge-ghost badge-sm">
+                        {titleCase(t.status ?? "active")}
                       </span>
                     ) : null}
                   </div>
@@ -127,15 +208,34 @@ function App() {
                 <button className="btn btn-xs" onClick={() => onOpen(t.id)}>
                   Open
                 </button>
-                <button className="btn btn-primary btn-xs" onClick={() => onContinue(t.id)}>
-                  Continue
-                </button>
-                <button className="btn btn-outline btn-xs" onClick={() => onJumpToNew(t.id)}>
-                  Jump to new
-                </button>
-                <button className="btn btn-ghost btn-xs" onClick={() => onReset(t.id)}>
-                  Reset
-                </button>
+                {(t.status ?? "active") === "active" ? (
+                  <>
+                    <button className="btn btn-primary btn-xs" onClick={() => onContinue(t.id)}>
+                      Continue
+                    </button>
+                    <button className="btn btn-outline btn-xs" onClick={() => onJumpToNew(t.id)}>
+                      Jump to new
+                    </button>
+                    <button className="btn btn-outline btn-xs" onClick={() => onFinish(t.id)}>
+                      Finish
+                    </button>
+                    <button className="btn btn-outline btn-xs" onClick={() => onDismiss(t)}>
+                      Dismiss
+                    </button>
+                    <button className="btn btn-ghost btn-xs" onClick={() => onReset(t.id)}>
+                      Reset
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn btn-outline btn-xs" onClick={() => onJumpToNew(t.id)}>
+                      Jump to new
+                    </button>
+                    <button className="btn btn-outline btn-xs" onClick={() => onRestore(t.id)}>
+                      Restore
+                    </button>
+                  </>
+                )}
                 <button className="btn btn-ghost btn-xs" onClick={() => onRemove(t.id)}>
                   Remove
                 </button>

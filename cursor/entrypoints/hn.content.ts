@@ -334,6 +334,8 @@ function mountToolbarNearFirstComment(toolbar: HTMLElement, firstCommentRow: HTM
 // Index in DOM order for the currently selected "new comment" within this page's filtered list.
 let currentNewIdx: number | undefined;
 
+let finishActiveThread: (() => Promise<void>) | undefined;
+
 let messageListenerRegistered = false;
 function registerMessageListener() {
   if (messageListenerRegistered) return;
@@ -343,7 +345,13 @@ function registerMessageListener() {
     const message = raw as { type?: string; storyId?: string };
     if (!message?.type) return;
 
-    if (message.type !== "hnLater/continue" && message.type !== "hnLater/jumpToNew") return;
+    if (
+      message.type !== "hnLater/continue" &&
+      message.type !== "hnLater/jumpToNew" &&
+      message.type !== "hnLater/finish"
+    ) {
+      return;
+    }
 
     (async () => {
       try {
@@ -399,6 +407,12 @@ function registerMessageListener() {
             // Best-effort sync for the floating nav label (it may not be mounted yet).
             const label = document.getElementById("hn-later-floating-new-label");
             if (label) label.textContent = `Unread 1/${unreadRows.length}`;
+          }
+        }
+
+        if (message.type === "hnLater/finish") {
+          if (finishActiveThread) {
+            await finishActiveThread();
           }
         }
 
@@ -902,6 +916,8 @@ async function initItemPage(url: URL) {
     renderToolbar();
   }
 
+  finishActiveThread = onFinish;
+
   async function onDismiss() {
     if (!thread) await onSaveToggle();
     if (!thread) return;
@@ -1078,6 +1094,16 @@ async function initItemPage(url: URL) {
       newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
+
+    // If this thread is dismissed but missing a frozen snapshot (e.g. dismissed from popup before any
+    // stats were computed), initialize it once from the current progress.
+    if (thread.status === "dismissed" && thread.frozenProgress == null) {
+      await setFrozenProgress(storyIdStr, {
+        totalComments: stats.totalComments,
+        readCount: stats.readCount,
+        percent: stats.percent,
+      });
+    }
 
     // Refresh local thread copy for UI labels.
     thread = await getThread(storyIdStr);

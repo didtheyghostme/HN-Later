@@ -6,9 +6,12 @@ import {
   getThread,
   listThreads,
   removeThread,
+  restoreThread,
   setCachedStats,
   setDismissNewAboveUntilId,
+  setFrozenProgress,
   setLastReadCommentId,
+  setThreadStatus,
   setVisitInfo,
   upsertThread,
   type ThreadRecord,
@@ -547,6 +550,17 @@ async function initItemPage(url: URL) {
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
+    // Finished threads keep a frozen 100% snapshot; if there are no remaining new comments, roll it
+    // forward to the latest totals (still 100%).
+    if (thread?.status === "finished" && newCount === 0) {
+      const total = commentIds.length;
+      await setFrozenProgress(storyIdStr, {
+        totalComments: total,
+        readCount: total,
+        percent: total === 0 ? 0 : 100,
+      });
+    }
+
     thread = await getThread(storyIdStr);
     updateMarkLabels();
     renderToolbar();
@@ -729,6 +743,17 @@ async function initItemPage(url: URL) {
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
+    // If this is a Finished thread, rolling new back to 0 means we're caught up again; update the
+    // frozen snapshot to reflect the latest total (still 100%).
+    if (thread.status === "finished") {
+      const total = commentIds.length;
+      await setFrozenProgress(storyIdStr, {
+        totalComments: total,
+        readCount: total,
+        percent: total === 0 ? 0 : 100,
+      });
+    }
+
     thread = await getThread(storyIdStr);
     updateMarkLabels();
     renderToolbar();
@@ -838,13 +863,93 @@ async function initItemPage(url: URL) {
     renderToolbar();
   }
 
+  async function onFinish() {
+    if (!thread) await onSaveToggle();
+    if (!thread) return;
+
+    // Refresh highlights/gutters so unread/new counts are accurate even if user clicks immediately.
+    const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
+      lastReadCommentId: thread.lastReadCommentId,
+      dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
+      seenNewCommentIds: thread.seenNewCommentIds,
+    });
+    applyUnreadGutters(commentRows, thread.lastReadCommentId);
+    updateMarkLabels();
+
+    const unreadCount = getUnreadRows().length;
+    if (unreadCount > 0 || newCount > 0) {
+      const ok = window.confirm(
+        "Finish this thread?\n\nThis will mark all current unread/new comments as seen so progress becomes 100%.",
+      );
+      if (!ok) {
+        renderToolbar();
+        return;
+      }
+      await markUnreadAsSeen();
+    }
+
+    // Freeze at 100% (as-of now).
+    const total = commentIds.length;
+    await setThreadStatus(storyIdStr, "finished");
+    await setFrozenProgress(storyIdStr, {
+      totalComments: total,
+      readCount: total,
+      percent: total === 0 ? 0 : 100,
+    });
+
+    thread = await getThread(storyIdStr);
+    updateMarkLabels();
+    renderToolbar();
+  }
+
+  async function onDismiss() {
+    if (!thread) await onSaveToggle();
+    if (!thread) return;
+
+    const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
+      lastReadCommentId: thread.lastReadCommentId,
+      dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
+      seenNewCommentIds: thread.seenNewCommentIds,
+    });
+    applyUnreadGutters(commentRows, thread.lastReadCommentId);
+    updateMarkLabels();
+
+    const stats = computeStats({
+      commentIds,
+      lastReadCommentId: thread.lastReadCommentId,
+      maxSeenCommentId: thread.maxSeenCommentId,
+      newCount,
+    });
+    await setCachedStats({ storyId: storyIdStr, stats });
+
+    await setThreadStatus(storyIdStr, "dismissed");
+    await setFrozenProgress(storyIdStr, {
+      totalComments: stats.totalComments,
+      readCount: stats.readCount,
+      percent: stats.percent,
+    });
+
+    thread = await getThread(storyIdStr);
+    updateMarkLabels();
+    renderToolbar();
+  }
+
+  async function onRestore() {
+    if (!thread) return;
+    await restoreThread(storyIdStr);
+    thread = await getThread(storyIdStr);
+    updateMarkLabels();
+    renderToolbar();
+  }
+
   function renderToolbar() {
     toolbar.replaceChildren();
 
     const saved = !!thread;
     const lastRead = thread?.lastReadCommentId;
+    const status = thread?.status ?? "active";
 
-    const stats = saved
+    const computedStats = saved
       ? computeStats({
           commentIds,
           lastReadCommentId: lastRead,
@@ -852,15 +957,22 @@ async function initItemPage(url: URL) {
           newCount: thread?.cachedStats?.newCount,
         })
       : undefined;
+    const progressForDisplay =
+      status === "active" ? computedStats : (thread?.frozenProgress ?? computedStats);
+    const liveNewCount = saved ? (thread?.cachedStats?.newCount ?? 0) : 0;
 
     const left = document.createElement("span");
     left.className = "hn-later-pill";
     if (!saved) {
       left.textContent = "Not saved — save to track progress";
     } else {
-      const base = `Progress: ${stats?.readCount ?? 0}/${stats?.totalComments ?? 0} (${stats?.percent ?? 0}%)`;
-      const n = stats?.newCount ?? 0;
-      left.textContent = n > 0 ? `${base} · ${n} new` : base;
+      const statusPrefix =
+        status === "finished" ? "Finished · " : status === "dismissed" ? "Dismissed · " : "";
+      const base = `Progress: ${progressForDisplay?.readCount ?? 0}/${progressForDisplay?.totalComments ?? 0} (${progressForDisplay?.percent ?? 0}%)`;
+      left.textContent =
+        liveNewCount > 0
+          ? `${statusPrefix}${base} · ${liveNewCount} new`
+          : `${statusPrefix}${base}`;
     }
 
     const saveLink = document.createElement("a");
@@ -884,9 +996,39 @@ async function initItemPage(url: URL) {
       highlightRow(target, "hn-later-highlight");
     });
 
+    const finishLink = document.createElement("a");
+    finishLink.href = "#";
+    finishLink.textContent = "Finish";
+    finishLink.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await onFinish();
+    });
+
+    const dismissLink = document.createElement("a");
+    dismissLink.href = "#";
+    dismissLink.textContent = "Dismiss";
+    dismissLink.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await onDismiss();
+    });
+
+    const restoreLink = document.createElement("a");
+    restoreLink.href = "#";
+    restoreLink.textContent = "Restore";
+    restoreLink.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await onRestore();
+    });
+
     toolbar.appendChild(left);
     toolbar.appendChild(saveLink);
     toolbar.appendChild(continueLink);
+    if (saved && status !== "active") {
+      toolbar.appendChild(restoreLink);
+    } else {
+      toolbar.appendChild(finishLink);
+      toolbar.appendChild(dismissLink);
+    }
     renderFloatingNewNav();
   }
 

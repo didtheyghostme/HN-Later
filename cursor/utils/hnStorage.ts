@@ -7,12 +7,24 @@ export type ThreadStats = {
   newCount?: number;
 };
 
+export type ThreadStatus = "active" | "finished" | "dismissed";
+
+export type FrozenProgress = {
+  totalComments: number;
+  readCount: number;
+  percent: number;
+};
+
 export type ThreadRecord = {
   id: string; // HN story id
   title: string;
   url: string; // canonical item url
   addedAt: number; // epoch ms
   lastVisitedAt?: number; // epoch ms
+  status?: ThreadStatus; // default: active
+  // Frozen snapshot used for display when status !== active. New:+N remains live.
+  frozenProgress?: FrozenProgress;
+  archivedAt?: number; // epoch ms
   lastReadCommentId?: number; // numeric HN comment id
   // When set, "new" comments ABOVE lastReadCommentId (in DOM order) are only considered new if their id is
   // greater than this watermark. This allows "mark-to-here" to dismiss existing new comments above the
@@ -57,6 +69,9 @@ export async function upsertThread(input: {
     url: input.url,
     addedAt: existing?.addedAt ?? nowMs(),
     lastVisitedAt: existing?.lastVisitedAt,
+    status: existing?.status,
+    frozenProgress: existing?.frozenProgress,
+    archivedAt: existing?.archivedAt,
     lastReadCommentId: existing?.lastReadCommentId,
     dismissNewAboveUntilId: existing?.dismissNewAboveUntilId,
     maxSeenCommentId: existing?.maxSeenCommentId,
@@ -168,6 +183,42 @@ export async function setCachedStats(input: {
   await setThreadsById(threadsById);
 }
 
+export async function setThreadStatus(storyId: string, status: ThreadStatus): Promise<void> {
+  const threadsById = await getThreadsById();
+  const existing = threadsById[storyId];
+  if (!existing) return;
+
+  const nextArchivedAt = status === "active" ? undefined : nowMs();
+  threadsById[storyId] = { ...existing, status, archivedAt: nextArchivedAt };
+  await setThreadsById(threadsById);
+}
+
+export async function setFrozenProgress(
+  storyId: string,
+  frozenProgress: FrozenProgress | undefined,
+): Promise<void> {
+  const threadsById = await getThreadsById();
+  const existing = threadsById[storyId];
+  if (!existing) return;
+
+  threadsById[storyId] = { ...existing, frozenProgress };
+  await setThreadsById(threadsById);
+}
+
+export async function restoreThread(storyId: string): Promise<void> {
+  const threadsById = await getThreadsById();
+  const existing = threadsById[storyId];
+  if (!existing) return;
+
+  threadsById[storyId] = {
+    ...existing,
+    status: "active",
+    frozenProgress: undefined,
+    archivedAt: undefined,
+  };
+  await setThreadsById(threadsById);
+}
+
 export async function resetProgress(storyId: string): Promise<void> {
   const threadsById = await getThreadsById();
   const existing = threadsById[storyId];
@@ -175,6 +226,9 @@ export async function resetProgress(storyId: string): Promise<void> {
 
   threadsById[storyId] = {
     ...existing,
+    status: "active",
+    frozenProgress: undefined,
+    archivedAt: undefined,
     lastReadCommentId: undefined,
     dismissNewAboveUntilId: undefined,
     seenNewCommentIds: undefined,

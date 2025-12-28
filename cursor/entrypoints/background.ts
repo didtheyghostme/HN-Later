@@ -5,6 +5,7 @@ export default defineBackground(() => {
   type HnLaterMessage =
     | { type: "hnLater/open"; storyId: string }
     | { type: "hnLater/continue"; storyId: string }
+    | { type: "hnLater/finish"; storyId: string }
     | { type: "hnLater/jumpToNew"; storyId: string };
 
   async function openOrFocusItemTab(storyId: string): Promise<Browser.tabs.Tab> {
@@ -78,7 +79,11 @@ export default defineBackground(() => {
           return;
         }
 
-        if (message.type === "hnLater/continue" || message.type === "hnLater/jumpToNew") {
+        if (
+          message.type === "hnLater/continue" ||
+          message.type === "hnLater/jumpToNew" ||
+          message.type === "hnLater/finish"
+        ) {
           const tab = await openOrFocusItemTab(message.storyId);
           if (tab.id == null) throw new Error("Failed to open tab");
           await waitForTabComplete(tab.id);

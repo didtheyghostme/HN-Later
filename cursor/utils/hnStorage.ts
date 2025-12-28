@@ -7,7 +7,7 @@ export type ThreadStats = {
   newCount?: number;
 };
 
-export type ThreadStatus = "active" | "finished" | "dismissed";
+export type ThreadStatus = "active" | "finished" | "archived";
 
 export type FrozenProgress = {
   totalComments: number;

@@ -88,13 +88,13 @@ function App() {
     if (!res.ok) setStatus(res.error ?? "Failed to finish");
   }
 
-  async function onDismiss(thread: ThreadRecord) {
+  async function onArchive(thread: ThreadRecord) {
     setStatus(null);
     const stats = thread.cachedStats;
     const frozen: FrozenProgress | undefined = stats
       ? { totalComments: stats.totalComments, readCount: stats.readCount, percent: stats.percent }
       : undefined;
-    await setThreadStatus(thread.id, "dismissed");
+    await setThreadStatus(thread.id, "archived");
     await setFrozenProgress(thread.id, frozen);
     await refresh();
   }
@@ -138,10 +138,10 @@ function App() {
           Finished
         </button>
         <button
-          className={view === "dismissed" ? "btn btn-xs btn-primary" : "btn btn-xs btn-ghost"}
-          onClick={() => setView("dismissed")}
+          className={view === "archived" ? "btn btn-xs btn-primary" : "btn btn-xs btn-ghost"}
+          onClick={() => setView("archived")}
         >
-          Dismissed
+          Archived
         </button>
         <button
           className={view === "all" ? "btn btn-xs btn-primary" : "btn btn-xs btn-ghost"}
@@ -219,8 +219,8 @@ function App() {
                     <button className="btn btn-outline btn-xs" onClick={() => onFinish(t.id)}>
                       Finish
                     </button>
-                    <button className="btn btn-outline btn-xs" onClick={() => onDismiss(t)}>
-                      Dismiss
+                    <button className="btn btn-outline btn-xs" onClick={() => onArchive(t)}>
+                      Archive
                     </button>
                     <button className="btn btn-ghost btn-xs" onClick={() => onReset(t.id)}>
                       Reset

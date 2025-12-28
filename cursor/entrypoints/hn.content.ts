@@ -564,9 +564,9 @@ async function initItemPage(url: URL) {
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
-    // Dismissed threads freeze progress for display; explicit progress actions should update the
+    // Archived threads freeze progress for display; explicit progress actions should update the
     // frozen snapshot to match the new state (while still preventing passive backsliding).
-    if (thread?.status === "dismissed") {
+    if (thread?.status === "archived") {
       await setFrozenProgress(storyIdStr, {
         totalComments: stats.totalComments,
         readCount: stats.readCount,
@@ -621,8 +621,8 @@ async function initItemPage(url: URL) {
     await setCachedStats({ storyId: storyIdStr, stats });
     const nextThread: ThreadRecord = { ...thread, cachedStats: stats };
 
-    // Dismissed threads: update frozen snapshot on explicit progress changes (mark-to-here).
-    if (thread.status === "dismissed") {
+    // Archived threads: update frozen snapshot on explicit progress changes (mark-to-here).
+    if (thread.status === "archived") {
       const frozen = {
         totalComments: stats.totalComments,
         readCount: stats.readCount,
@@ -780,8 +780,8 @@ async function initItemPage(url: URL) {
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
-    // Dismissed threads: update frozen snapshot on explicit progress changes (✓ seen).
-    if (thread.status === "dismissed") {
+    // Archived threads: update frozen snapshot on explicit progress changes (✓ seen).
+    if (thread.status === "archived") {
       await setFrozenProgress(storyIdStr, {
         totalComments: stats.totalComments,
         readCount: stats.readCount,
@@ -950,7 +950,7 @@ async function initItemPage(url: URL) {
 
   finishActiveThread = onFinish;
 
-  async function onDismiss() {
+  async function onArchive() {
     if (!thread) await onSaveToggle();
     if (!thread) return;
 
@@ -970,7 +970,7 @@ async function initItemPage(url: URL) {
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
-    await setThreadStatus(storyIdStr, "dismissed");
+    await setThreadStatus(storyIdStr, "archived");
     await setFrozenProgress(storyIdStr, {
       totalComments: stats.totalComments,
       readCount: stats.readCount,
@@ -1015,7 +1015,7 @@ async function initItemPage(url: URL) {
       left.textContent = "Not saved — save to track progress";
     } else {
       const statusPrefix =
-        status === "finished" ? "Finished · " : status === "dismissed" ? "Dismissed · " : "";
+        status === "finished" ? "Finished · " : status === "archived" ? "Archived · " : "";
       const base = `Progress: ${progressForDisplay?.readCount ?? 0}/${progressForDisplay?.totalComments ?? 0} (${progressForDisplay?.percent ?? 0}%)`;
       left.textContent =
         liveNewCount > 0
@@ -1052,12 +1052,12 @@ async function initItemPage(url: URL) {
       await onFinish();
     });
 
-    const dismissLink = document.createElement("a");
-    dismissLink.href = "#";
-    dismissLink.textContent = "Dismiss";
-    dismissLink.addEventListener("click", async (e) => {
+    const archiveLink = document.createElement("a");
+    archiveLink.href = "#";
+    archiveLink.textContent = "Archive";
+    archiveLink.addEventListener("click", async (e) => {
       e.preventDefault();
-      await onDismiss();
+      await onArchive();
     });
 
     const restoreLink = document.createElement("a");
@@ -1075,7 +1075,7 @@ async function initItemPage(url: URL) {
       toolbar.appendChild(restoreLink);
     } else {
       toolbar.appendChild(finishLink);
-      toolbar.appendChild(dismissLink);
+      toolbar.appendChild(archiveLink);
     }
     renderFloatingNewNav();
   }
@@ -1127,9 +1127,9 @@ async function initItemPage(url: URL) {
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
-    // If this thread is dismissed but missing a frozen snapshot (e.g. dismissed from popup before any
+    // If this thread is archived but missing a frozen snapshot (e.g. archived from popup before any
     // stats were computed), initialize it once from the current progress.
-    if (thread.status === "dismissed" && thread.frozenProgress == null) {
+    if (thread.status === "archived" && thread.frozenProgress == null) {
       await setFrozenProgress(storyIdStr, {
         totalComments: stats.totalComments,
         readCount: stats.readCount,

@@ -6,7 +6,7 @@ import {
   getThread,
   listThreads,
   removeThread,
-  restoreThread,
+  unarchiveThread,
   setCachedStats,
   setDismissNewAboveUntilId,
   setFrozenProgress,
@@ -982,9 +982,9 @@ async function initItemPage(url: URL) {
     renderToolbar();
   }
 
-  async function onRestore() {
+  async function onUnarchive() {
     if (!thread) return;
-    await restoreThread(storyIdStr);
+    await unarchiveThread(storyIdStr);
     thread = await getThread(storyIdStr);
     updateMarkLabels();
     renderToolbar();
@@ -1060,19 +1060,19 @@ async function initItemPage(url: URL) {
       await onArchive();
     });
 
-    const restoreLink = document.createElement("a");
-    restoreLink.href = "#";
-    restoreLink.textContent = "Restore";
-    restoreLink.addEventListener("click", async (e) => {
+    const unarchiveLink = document.createElement("a");
+    unarchiveLink.href = "#";
+    unarchiveLink.textContent = "Unarchive";
+    unarchiveLink.addEventListener("click", async (e) => {
       e.preventDefault();
-      await onRestore();
+      await onUnarchive();
     });
 
     toolbar.appendChild(left);
     toolbar.appendChild(saveLink);
     toolbar.appendChild(continueLink);
     if (saved && status !== "active") {
-      toolbar.appendChild(restoreLink);
+      toolbar.appendChild(unarchiveLink);
     } else {
       toolbar.appendChild(finishLink);
       toolbar.appendChild(archiveLink);

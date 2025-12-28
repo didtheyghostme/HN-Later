@@ -205,7 +205,7 @@ export async function setFrozenProgress(
   await setThreadsById(threadsById);
 }
 
-export async function restoreThread(storyId: string): Promise<void> {
+export async function unarchiveThread(storyId: string): Promise<void> {
   const threadsById = await getThreadsById();
   const existing = threadsById[storyId];
   if (!existing) return;

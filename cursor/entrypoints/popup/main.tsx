@@ -8,7 +8,7 @@ import {
   listThreads,
   removeThread,
   resetProgress,
-  restoreThread,
+  unarchiveThread,
   setFrozenProgress,
   setThreadStatus,
   type FrozenProgress,
@@ -99,9 +99,9 @@ function App() {
     await refresh();
   }
 
-  async function onRestore(storyId: string) {
+  async function onUnarchive(storyId: string) {
     setStatus(null);
-    await restoreThread(storyId);
+    await unarchiveThread(storyId);
     await refresh();
   }
 
@@ -231,8 +231,8 @@ function App() {
                     <button className="btn btn-outline btn-xs" onClick={() => onJumpToNew(t.id)}>
                       Jump to new
                     </button>
-                    <button className="btn btn-outline btn-xs" onClick={() => onRestore(t.id)}>
-                      Restore
+                    <button className="btn btn-outline btn-xs" onClick={() => onUnarchive(t.id)}>
+                      Unarchive
                     </button>
                   </>
                 )}

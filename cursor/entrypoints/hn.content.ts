@@ -564,6 +564,16 @@ async function initItemPage(url: URL) {
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
+    // Dismissed threads freeze progress for display; explicit progress actions should update the
+    // frozen snapshot to match the new state (while still preventing passive backsliding).
+    if (thread?.status === "dismissed") {
+      await setFrozenProgress(storyIdStr, {
+        totalComments: stats.totalComments,
+        readCount: stats.readCount,
+        percent: stats.percent,
+      });
+    }
+
     // Finished threads keep a frozen 100% snapshot; if there are no remaining new comments, roll it
     // forward to the latest totals (still 100%).
     if (thread?.status === "finished" && newCount === 0) {
@@ -609,7 +619,20 @@ async function initItemPage(url: URL) {
       newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
-    thread = { ...thread, cachedStats: stats };
+    const nextThread: ThreadRecord = { ...thread, cachedStats: stats };
+
+    // Dismissed threads: update frozen snapshot on explicit progress changes (mark-to-here).
+    if (thread.status === "dismissed") {
+      const frozen = {
+        totalComments: stats.totalComments,
+        readCount: stats.readCount,
+        percent: stats.percent,
+      };
+      await setFrozenProgress(storyIdStr, frozen);
+      thread = { ...nextThread, frozenProgress: frozen };
+    } else {
+      thread = nextThread;
+    }
 
     // Update toolbar display if present.
     renderToolbar();
@@ -756,6 +779,15 @@ async function initItemPage(url: URL) {
       newCount: 0,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
+
+    // Dismissed threads: update frozen snapshot on explicit progress changes (✓ seen).
+    if (thread.status === "dismissed") {
+      await setFrozenProgress(storyIdStr, {
+        totalComments: stats.totalComments,
+        readCount: stats.readCount,
+        percent: stats.percent,
+      });
+    }
 
     // If this is a Finished thread, rolling new back to 0 means we're caught up again; update the
     // frozen snapshot to reflect the latest total (still 100%).

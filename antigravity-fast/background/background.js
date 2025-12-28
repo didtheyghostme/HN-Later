@@ -36,6 +36,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'getProgress':
       getProgress(request.itemId).then(sendResponse);
       return true;
+    
+    case 'archiveItem':
+      archiveItem(request.itemId, request.archived).then(sendResponse);
+      return true;
   }
 });
 
@@ -138,6 +142,14 @@ async function updateProgress(itemId, progressData) {
         lastVisited: Date.now()
       };
 
+      // Auto-snapshot when 100% is reached for the first time
+      if (items[itemId].progress.percentage === 100 && !items[itemId].snapshot) {
+        items[itemId].snapshot = {
+          percentage: 100,
+          totalComments: items[itemId].progress.totalComments
+        };
+      }
+
       await chrome.storage.local.set({ hnLaterItems: items });
       return { success: true, progress: items[itemId].progress };
     }
@@ -162,6 +174,39 @@ async function getProgress(itemId) {
     return { success: false, error: 'Item not found' };
   } catch (error) {
     console.error('Error getting progress:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Archive/Unarchive an item
+async function archiveItem(itemId, archived) {
+  try {
+    const result = await chrome.storage.local.get(['hnLaterItems']);
+    const items = result.hnLaterItems || {};
+    
+    if (items[itemId]) {
+      items[itemId].archived = archived;
+      
+      if (archived) {
+        // Create snapshot when archiving
+        items[itemId].snapshot = {
+          percentage: items[itemId].progress.percentage,
+          totalComments: items[itemId].progress.totalComments
+        };
+      } else {
+        // Clear snapshot when unarchiving if not 100%
+        if (items[itemId].progress.percentage < 100) {
+          delete items[itemId].snapshot;
+        }
+      }
+      
+      await chrome.storage.local.set({ hnLaterItems: items });
+      return { success: true, archived: items[itemId].archived };
+    }
+    
+    return { success: false, error: 'Item not found' };
+  } catch (error) {
+    console.error('Error archiving item:', error);
     return { success: false, error: error.message };
   }
 }

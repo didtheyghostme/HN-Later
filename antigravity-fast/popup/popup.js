@@ -57,16 +57,19 @@ function setupTabs() {
 function filterItems() {
   switch (currentTab) {
     case 'unread':
-      return allItems.filter(item => (item.progress?.percentage || 0) === 0);
+      return allItems.filter(item => !item.archived && (item.progress?.percentage || 0) === 0);
     case 'reading':
       return allItems.filter(item => {
         const p = item.progress?.percentage || 0;
-        return p > 0 && p < 100;
+        return !item.archived && p > 0 && p < 100;
       });
     case 'complete':
-      return allItems.filter(item => (item.progress?.percentage || 0) === 100);
+      return allItems.filter(item => !item.archived && (item.progress?.percentage || 0) === 100);
+    case 'archived':
+      return allItems.filter(item => item.archived);
     default:
-      return allItems;
+      // In 'All', show everything that's NOT archived
+      return allItems.filter(item => !item.archived);
   }
 }
 
@@ -96,7 +99,12 @@ function renderItems() {
 
 // Create item element
 function createItemElement(item) {
-  const percentage = item.progress?.percentage || 0;
+  const isArchived = item.archived || false;
+  const snapshot = item.snapshot;
+  const percentage = snapshot ? snapshot.percentage : (item.progress?.percentage || 0);
+  const totalComments = item.progress?.totalComments || 0;
+  const newCommentsCount = snapshot ? Math.max(0, totalComments - snapshot.totalComments) : 0;
+
   const status = getStatus(percentage);
   const savedDate = formatDate(item.savedAt);
   
@@ -109,7 +117,7 @@ function createItemElement(item) {
     </div>
     <div class="item-meta">
       <span>👤 ${escapeHtml(item.author || 'unknown')}</span>
-      <span>💬 ${item.commentCount || 0}</span>
+      <span>💬 ${totalComments}${newCommentsCount > 0 ? ` <span class="new-count">+${newCommentsCount} new</span>` : ''}</span>
       <span>📅 ${savedDate}</span>
     </div>
     <div class="item-progress-container">
@@ -120,10 +128,13 @@ function createItemElement(item) {
         ${percentage === 100 ? '✓ Complete' : percentage > 0 ? percentage + '% read' : 'Not started'}
       </span>
       <div class="item-actions">
-        ${percentage > 0 && percentage < 100 
+        ${percentage > 0 && percentage < 100 && !isArchived
           ? '<button class="item-action-btn continue">▶ Continue</button>' 
           : ''}
         <button class="item-action-btn open">Open</button>
+        <button class="item-action-btn archive-btn" title="${isArchived ? 'Unarchive' : 'Archive'}">
+          ${isArchived ? '📥' : '📦'}
+        </button>
       </div>
     </div>
   `;
@@ -146,8 +157,13 @@ function createItemElement(item) {
     e.stopPropagation();
     await openItem(item, false);
   });
+
+  el.querySelector('.archive-btn').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await toggleArchive(item.id, !isArchived);
+  });
   
-  el.addEventListener('click', () => openItem(item, percentage > 0 && percentage < 100));
+  el.addEventListener('click', () => openItem(item, percentage > 0 && percentage < 100 && !isArchived));
   
   return el;
 }
@@ -180,6 +196,24 @@ async function removeItem(itemId) {
     allItems = allItems.filter(item => item.id !== itemId);
     updateStats();
     renderItems();
+  }
+}
+
+// Toggle archive status
+async function toggleArchive(itemId, archived) {
+  const response = await chrome.runtime.sendMessage({ 
+    action: 'archiveItem', 
+    itemId: itemId,
+    archived: archived
+  });
+  
+  if (response.success) {
+    const itemIndex = allItems.findIndex(i => i.id === itemId);
+    if (itemIndex !== -1) {
+      allItems[itemIndex].archived = archived;
+      // Refresh items to apply filtering and snapshotting logic
+      await loadItems(); 
+    }
   }
 }
 

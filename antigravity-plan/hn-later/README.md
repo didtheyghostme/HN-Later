@@ -2,6 +2,12 @@
 
 A Chrome extension to save Hacker News stories for later, with checkpoint-based comment tracking and a visual reading minimap.
 
+## Screenshots
+
+<img width="1200" alt="Comment page with visual minimap and checkpoint tracking" src="https://github.com/user-attachments/assets/1a4ae906-cf3a-47e2-8516-de63d092109f" />
+
+<img width="600" alt="Extension popup showing saved stories" src="https://github.com/user-attachments/assets/78c2c9a9-4b7c-4f50-af06-0576ea76d7c9" />
+
 ## Features
 
 - 🔖 **Save for Later** - Native "save" link on any HN story (listing and item pages)

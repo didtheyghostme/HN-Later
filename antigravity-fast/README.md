@@ -2,6 +2,13 @@
 
 A Chrome extension that helps you save Hacker News threads to read later, with intelligent comment progress tracking.
 
+## Screenshots
+
+<img width="800" alt="HN Later reading progress tracking on Hacker News" src="https://github.com/user-attachments/assets/e5a8acfe-9c53-4887-995f-52449ea62b9c" />
+
+<img width="400" alt="HN Later extension popup" src="https://github.com/user-attachments/assets/a1858c71-429d-4360-88ed-b79476b0301e" />
+
+
 ## Features
 
 ### 📚 Save for Later

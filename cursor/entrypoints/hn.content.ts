@@ -345,10 +345,7 @@ function registerMessageListener() {
     const message = raw as { type?: string; storyId?: string };
     if (!message?.type) return;
 
-    if (
-      message.type !== "hnLater/continue" &&
-      message.type !== "hnLater/finish"
-    ) {
+    if (message.type !== "hnLater/continue" && message.type !== "hnLater/finish") {
       return;
     }
 

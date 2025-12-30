@@ -50,8 +50,8 @@ function MoreDropdown({
 
   return (
     <details ref={detailsRef} className="dropdown dropdown-end">
-      <summary className="btn btn-ghost btn-xs">More</summary>
-      <ul className="menu dropdown-content z-[1] w-32 rounded-box bg-base-100 p-1 shadow">
+      <summary className="btn btn-square btn-ghost btn-xs">⋮</summary>
+      <ul className="menu dropdown-content w-32 rounded-box bg-base-100 p-1 shadow">
         {React.Children.map(children, (child) => {
           if (React.isValidElement(child)) {
             return (
@@ -163,25 +163,25 @@ function App() {
 
       <div className="mt-2 flex flex-wrap gap-1.5">
         <button
-          className={view === "active" ? "btn btn-xs btn-primary" : "btn btn-xs btn-ghost"}
+          className={view === "active" ? "btn btn-primary btn-xs" : "btn btn-ghost btn-xs"}
           onClick={() => setView("active")}
         >
           Active
         </button>
         <button
-          className={view === "finished" ? "btn btn-xs btn-primary" : "btn btn-xs btn-ghost"}
+          className={view === "finished" ? "btn btn-primary btn-xs" : "btn btn-ghost btn-xs"}
           onClick={() => setView("finished")}
         >
           Finished
         </button>
         <button
-          className={view === "archived" ? "btn btn-xs btn-primary" : "btn btn-xs btn-ghost"}
+          className={view === "archived" ? "btn btn-primary btn-xs" : "btn btn-ghost btn-xs"}
           onClick={() => setView("archived")}
         >
           Archived
         </button>
         <button
-          className={view === "all" ? "btn btn-xs btn-primary" : "btn btn-xs btn-ghost"}
+          className={view === "all" ? "btn btn-primary btn-xs" : "btn btn-ghost btn-xs"}
           onClick={() => setView("all")}
         >
           All
@@ -239,6 +239,19 @@ function App() {
                     ) : null}
                   </div>
                 </div>
+                {(t.status ?? "active") === "active" ? (
+                  <MoreDropdown>
+                    <button onClick={() => onFinish(t.id)}>Mark as Finished</button>
+                    <button onClick={() => onArchive(t)}>Archive</button>
+                    <button onClick={() => onReset(t.id)}>Reset</button>
+                    <button onClick={() => onRemove(t.id)}>Remove</button>
+                  </MoreDropdown>
+                ) : (
+                  <MoreDropdown>
+                    <button onClick={() => onUnarchive(t.id)}>Unarchive</button>
+                    <button onClick={() => onRemove(t.id)}>Remove</button>
+                  </MoreDropdown>
+                )}
               </div>
 
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -246,25 +259,10 @@ function App() {
                   Open
                 </button>
                 {(t.status ?? "active") === "active" ? (
-                  <>
-                    <button className="btn btn-primary btn-xs" onClick={() => onContinue(t.id)}>
-                      Continue
-                    </button>
-                    <MoreDropdown>
-                      <button onClick={() => onFinish(t.id)}>Mark as Finished</button>
-                      <button onClick={() => onArchive(t)}>Archive</button>
-                      <button onClick={() => onReset(t.id)}>Reset</button>
-                      <button onClick={() => onRemove(t.id)}>Remove</button>
-                    </MoreDropdown>
-                  </>
-                ) : (
-                  <>
-                    <MoreDropdown>
-                      <button onClick={() => onUnarchive(t.id)}>Unarchive</button>
-                      <button onClick={() => onRemove(t.id)}>Remove</button>
-                    </MoreDropdown>
-                  </>
-                )}
+                  <button className="btn btn-primary btn-xs" onClick={() => onContinue(t.id)}>
+                    Continue
+                  </button>
+                ) : null}
               </div>
             </div>
           ))

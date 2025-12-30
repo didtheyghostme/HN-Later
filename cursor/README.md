@@ -6,7 +6,7 @@ A **Manifest V3** Chrome extension for `news.ycombinator.com`:
 - Track comment reading progress with a **Mark-to-here** marker
 - Show **% read** per thread (saved)
 - Highlight **new comments** (new arrivals since you last acknowledged them)
-- **Continue** (resume where you left off) and **Jump to new**
+- **Continue** (resume where you left off)
 - Navigate through **unread comments** with a floating navigator
 
 ## Tech stack
@@ -70,8 +70,7 @@ WXT will run the extension in a dev browser profile with hot reload.
 ### Resume / new comments
 
 - **Continue**: jumps to your last read marker (or the first comment if you haven't set one).
-- **Jump to new**: jumps to the first unread comment (includes both new comments and unread old comments below your marker).
-  - A small floating **↑/↓ unread** navigator appears at the bottom-right when there are unread comments, so you can step through them without scrolling back to the top.
+- A small floating **↑/↓ unread** navigator appears at the bottom-right when there are unread comments, so you can step through them without scrolling back to the top.
   - The navigator shows "Unread X/Y" and optionally "(N new)" if there are new comments.
   - You can click **✓ seen** in the floating navigator to mark all unread comments as seen and clear the "new" badge/highlights.
   - Page refresh/accidental visits do **not** clear "new".
@@ -82,9 +81,8 @@ WXT will run the extension in a dev browser profile with hot reload.
 Click the extension icon to open the popup:
 
 - Search saved threads
-- Open / Continue / Jump to new
-- Reset progress
-- Remove thread from Read Later
+- Open / Continue buttons for quick access
+- More menu with Mark as Finished, Archive, Reset, and Remove options
 
 ## Notes / limitations
 

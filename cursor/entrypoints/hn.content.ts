@@ -347,7 +347,6 @@ function registerMessageListener() {
 
     if (
       message.type !== "hnLater/continue" &&
-      message.type !== "hnLater/jumpToNew" &&
       message.type !== "hnLater/finish"
     ) {
       return;
@@ -379,34 +378,6 @@ function registerMessageListener() {
           if (target) {
             scrollToRow(target);
             highlightRow(target, "hn-later-highlight");
-          }
-        }
-
-        if (message.type === "hnLater/jumpToNew") {
-          const thread = await getThread(currentStoryId);
-          const { newCount, firstNewRow } = applyNewHighlights(
-            commentRows,
-            thread?.maxSeenCommentId,
-            {
-              lastReadCommentId: thread?.lastReadCommentId,
-              dismissNewAboveUntilId: thread?.dismissNewAboveUntilId,
-              seenNewCommentIds: thread?.seenNewCommentIds,
-            },
-          );
-          if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
-          else clearUnreadGutters(commentRows);
-
-          // Jump to first unread comment instead of first new
-          const unreadRows = commentRows.filter((r) => r.classList.contains("hn-later-unread"));
-          const firstUnreadRow = unreadRows[0];
-          if (firstUnreadRow) {
-            currentNewIdx = 0;
-            scrollToRow(firstUnreadRow);
-            highlightRow(firstUnreadRow, "hn-later-highlight");
-
-            // Best-effort sync for the floating nav label (it may not be mounted yet).
-            const label = document.getElementById("hn-later-floating-new-label");
-            if (label) label.textContent = `Unread 1/${unreadRows.length}`;
           }
         }
 

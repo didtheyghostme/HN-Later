@@ -31,6 +31,49 @@ function titleCase(s: string) {
   return s.length ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
+function MoreDropdown({
+  children,
+  onSelect,
+}: {
+  children: React.ReactNode;
+  onSelect?: () => void;
+}) {
+  const detailsRef = React.useRef<HTMLDetailsElement>(null);
+
+  const handleItemClick = (callback: () => void) => {
+    callback();
+    if (detailsRef.current) {
+      detailsRef.current.open = false;
+    }
+    onSelect?.();
+  };
+
+  return (
+    <details ref={detailsRef} className="dropdown dropdown-end">
+      <summary className="btn btn-ghost btn-xs">More</summary>
+      <ul className="menu dropdown-content z-[1] w-32 rounded-box bg-base-100 p-1 shadow">
+        {React.Children.map(children, (child) => {
+          if (React.isValidElement(child)) {
+            return (
+              <li>
+                <a
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleItemClick(child.props.onClick);
+                  }}
+                >
+                  {child.props.children}
+                </a>
+              </li>
+            );
+          }
+          return null;
+        })}
+      </ul>
+    </details>
+  );
+}
+
 function App() {
   const [threads, setThreads] = React.useState<ThreadRecord[]>([]);
   const [query, setQuery] = React.useState("");
@@ -74,12 +117,6 @@ function App() {
     setStatus(null);
     const res = await sendToBackground({ type: "hnLater/continue", storyId });
     if (!res.ok) setStatus(res.error ?? "Failed to continue");
-  }
-
-  async function onJumpToNew(storyId: string) {
-    setStatus(null);
-    const res = await sendToBackground({ type: "hnLater/jumpToNew", storyId });
-    if (!res.ok) setStatus(res.error ?? "Failed to jump to new");
   }
 
   async function onFinish(storyId: string) {
@@ -213,32 +250,21 @@ function App() {
                     <button className="btn btn-primary btn-xs" onClick={() => onContinue(t.id)}>
                       Continue
                     </button>
-                    <button className="btn btn-outline btn-xs" onClick={() => onJumpToNew(t.id)}>
-                      Jump to new
-                    </button>
-                    <button className="btn btn-outline btn-xs" onClick={() => onFinish(t.id)}>
-                      Finish
-                    </button>
-                    <button className="btn btn-outline btn-xs" onClick={() => onArchive(t)}>
-                      Archive
-                    </button>
-                    <button className="btn btn-ghost btn-xs" onClick={() => onReset(t.id)}>
-                      Reset
-                    </button>
+                    <MoreDropdown>
+                      <button onClick={() => onFinish(t.id)}>Mark as Finished</button>
+                      <button onClick={() => onArchive(t)}>Archive</button>
+                      <button onClick={() => onReset(t.id)}>Reset</button>
+                      <button onClick={() => onRemove(t.id)}>Remove</button>
+                    </MoreDropdown>
                   </>
                 ) : (
                   <>
-                    <button className="btn btn-outline btn-xs" onClick={() => onJumpToNew(t.id)}>
-                      Jump to new
-                    </button>
-                    <button className="btn btn-outline btn-xs" onClick={() => onUnarchive(t.id)}>
-                      Unarchive
-                    </button>
+                    <MoreDropdown>
+                      <button onClick={() => onUnarchive(t.id)}>Unarchive</button>
+                      <button onClick={() => onRemove(t.id)}>Remove</button>
+                    </MoreDropdown>
                   </>
                 )}
-                <button className="btn btn-ghost btn-xs" onClick={() => onRemove(t.id)}>
-                  Remove
-                </button>
               </div>
             </div>
           ))

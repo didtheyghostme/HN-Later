@@ -13,7 +13,10 @@ A **Manifest V3** Chrome extension for `news.ycombinator.com`:
 
 - **WXT** (MV3 extension build tooling)
 - **React + TailwindCSS + DaisyUI** (popup UI)
-- **browser.storage.local** (local-only persistence)
+- **WebExt Core** (type-safe extension primitives)
+  - `@webext-core/storage` (typed `browser.storage.local` access)
+  - `@webext-core/messaging` (typed background↔content messaging)
+  - `@webext-core/proxy-service` (typed popup→background service calls)
 
 ## Setup
 

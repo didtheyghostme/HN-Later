@@ -6,12 +6,9 @@ import {
   type HnLaterService,
   type HnLaterServiceResult,
 } from "../utils/hnLaterService";
+import { hnLaterMessenger } from "../utils/hnLaterMessaging";
 
 export default defineBackground(() => {
-  type HnLaterContentMessage =
-    | { type: "hnLater/continue"; storyId: string }
-    | { type: "hnLater/finish"; storyId: string };
-
   async function openOrFocusItemTab(storyId: string): Promise<Browser.tabs.Tab> {
     const targetUrl = `https://news.ycombinator.com/item?id=${encodeURIComponent(storyId)}`;
 
@@ -55,18 +52,22 @@ export default defineBackground(() => {
     });
   }
 
-  async function sendToTab(tabId: number, message: HnLaterContentMessage): Promise<void> {
+  async function sendToTab(
+    tabId: number,
+    messageType: "hnLater/content/continue" | "hnLater/content/finish",
+    storyId: string,
+  ): Promise<void> {
     // Retry a few times in case the content script isn’t ready yet.
     for (let i = 0; i < 15; i += 1) {
       try {
-        await browser.tabs.sendMessage(tabId, message);
+        await hnLaterMessenger.sendMessage(messageType, { storyId }, tabId);
         return;
       } catch {
         await new Promise((r) => setTimeout(r, 200));
       }
     }
     // Last attempt (surface error)
-    await browser.tabs.sendMessage(tabId, message);
+    await hnLaterMessenger.sendMessage(messageType, { storyId }, tabId);
   }
 
   const serviceImpl: HnLaterService = {
@@ -83,7 +84,7 @@ export default defineBackground(() => {
         const tab = await openOrFocusItemTab(storyId);
         if (tab.id == null) throw new Error("Failed to open tab");
         await waitForTabComplete(tab.id);
-        await sendToTab(tab.id, { type: "hnLater/continue", storyId });
+        await sendToTab(tab.id, "hnLater/content/continue", storyId);
         return { ok: true, tabId: tab.id };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -94,7 +95,7 @@ export default defineBackground(() => {
         const tab = await openOrFocusItemTab(storyId);
         if (tab.id == null) throw new Error("Failed to open tab");
         await waitForTabComplete(tab.id);
-        await sendToTab(tab.id, { type: "hnLater/finish", storyId });
+        await sendToTab(tab.id, "hnLater/content/finish", storyId);
         return { ok: true, tabId: tab.id };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };

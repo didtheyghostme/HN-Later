@@ -4,6 +4,7 @@ import { browser, type Browser } from "wxt/browser";
 
 import "../../assets/tailwind.css";
 
+import { getHnLaterService, type HnLaterServiceResult } from "../../utils/hnLaterService";
 import {
   listThreads,
   removeThread,
@@ -16,11 +17,7 @@ import {
   type ThreadStatus,
 } from "../../utils/hnStorage";
 
-type BgResponse = { ok: boolean; tabId?: number; error?: string };
-
-async function sendToBackground(message: unknown): Promise<BgResponse> {
-  return (await browser.runtime.sendMessage(message)) as BgResponse;
-}
+const hnLaterService = getHnLaterService();
 
 function formatPercent(percent: number | undefined) {
   if (percent == null) return "—";
@@ -109,19 +106,19 @@ function App() {
 
   async function onOpen(storyId: string) {
     setStatus(null);
-    const res = await sendToBackground({ type: "hnLater/open", storyId });
+    const res: HnLaterServiceResult = await hnLaterService.open(storyId);
     if (!res.ok) setStatus(res.error ?? "Failed to open thread");
   }
 
   async function onContinue(storyId: string) {
     setStatus(null);
-    const res = await sendToBackground({ type: "hnLater/continue", storyId });
+    const res: HnLaterServiceResult = await hnLaterService.continue(storyId);
     if (!res.ok) setStatus(res.error ?? "Failed to continue");
   }
 
   async function onFinish(storyId: string) {
     setStatus(null);
-    const res = await sendToBackground({ type: "hnLater/finish", storyId });
+    const res: HnLaterServiceResult = await hnLaterService.finish(storyId);
     if (!res.ok) setStatus(res.error ?? "Failed to finish");
   }
 

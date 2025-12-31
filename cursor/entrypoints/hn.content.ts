@@ -1,5 +1,4 @@
 import { defineContentScript } from "wxt/utils/define-content-script";
-import { browser } from "wxt/browser";
 
 import {
   addSeenNewCommentIds,
@@ -17,6 +16,8 @@ import {
   type ThreadRecord,
   type ThreadStats,
 } from "../utils/hnStorage";
+
+import { hnLaterMessenger } from "../utils/hnLaterMessaging";
 
 const ITEM_BASE_URL = "https://news.ycombinator.com/item?id=";
 
@@ -341,56 +342,41 @@ function registerMessageListener() {
   if (messageListenerRegistered) return;
   messageListenerRegistered = true;
 
-  browser.runtime.onMessage.addListener((raw: unknown, _sender, sendResponse) => {
-    const message = raw as { type?: string; storyId?: string };
-    if (!message?.type) return;
+  hnLaterMessenger.onMessage("hnLater/content/continue", async ({ data }) => {
+    const url = new URL(window.location.href);
+    if (!isItemPage(url)) return { ok: true };
 
-    if (message.type !== "hnLater/continue" && message.type !== "hnLater/finish") {
-      return;
+    const currentStoryId = getStoryIdFromItemUrl(url);
+    if (!currentStoryId || currentStoryId !== data.storyId) return { ok: true };
+
+    const commentRows = getCommentRows();
+    const commentIds = getCommentIdsInDomOrder(commentRows);
+
+    const thread = await getThread(currentStoryId);
+    const lastRead = thread?.lastReadCommentId;
+
+    const idx = lastRead ? commentIds.indexOf(lastRead) : -1;
+    const target = idx >= 0 ? commentRows[idx] : commentRows[0];
+    if (target) {
+      scrollToRow(target);
+      highlightRow(target, "hn-later-highlight");
     }
 
-    (async () => {
-      try {
-        const url = new URL(window.location.href);
-        if (!isItemPage(url)) {
-          sendResponse({ ok: true });
-          return;
-        }
+    return { ok: true };
+  });
 
-        const currentStoryId = getStoryIdFromItemUrl(url);
-        if (!currentStoryId || !message.storyId || currentStoryId !== message.storyId) {
-          sendResponse({ ok: true });
-          return;
-        }
+  hnLaterMessenger.onMessage("hnLater/content/finish", async ({ data }) => {
+    const url = new URL(window.location.href);
+    if (!isItemPage(url)) return { ok: true };
 
-        const commentRows = getCommentRows();
-        const commentIds = getCommentIdsInDomOrder(commentRows);
+    const currentStoryId = getStoryIdFromItemUrl(url);
+    if (!currentStoryId || currentStoryId !== data.storyId) return { ok: true };
 
-        if (message.type === "hnLater/continue") {
-          const thread = await getThread(currentStoryId);
-          const lastRead = thread?.lastReadCommentId;
+    if (finishActiveThread) {
+      await finishActiveThread();
+    }
 
-          const idx = lastRead ? commentIds.indexOf(lastRead) : -1;
-          const target = idx >= 0 ? commentRows[idx] : commentRows[0];
-          if (target) {
-            scrollToRow(target);
-            highlightRow(target, "hn-later-highlight");
-          }
-        }
-
-        if (message.type === "hnLater/finish") {
-          if (finishActiveThread) {
-            await finishActiveThread();
-          }
-        }
-
-        sendResponse({ ok: true });
-      } catch (err) {
-        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
-      }
-    })();
-
-    return true;
+    return { ok: true };
   });
 }
 

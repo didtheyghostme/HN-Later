@@ -1,9 +1,14 @@
 import { defineBackground } from "wxt/utils/define-background";
 import { browser, type Browser } from "wxt/browser";
 
+import {
+  registerHnLaterService,
+  type HnLaterService,
+  type HnLaterServiceResult,
+} from "../utils/hnLaterService";
+
 export default defineBackground(() => {
-  type HnLaterMessage =
-    | { type: "hnLater/open"; storyId: string }
+  type HnLaterContentMessage =
     | { type: "hnLater/continue"; storyId: string }
     | { type: "hnLater/finish"; storyId: string };
 
@@ -50,7 +55,7 @@ export default defineBackground(() => {
     });
   }
 
-  async function sendToTab(tabId: number, message: any): Promise<void> {
+  async function sendToTab(tabId: number, message: HnLaterContentMessage): Promise<void> {
     // Retry a few times in case the content script isn’t ready yet.
     for (let i = 0; i < 15; i += 1) {
       try {
@@ -64,36 +69,38 @@ export default defineBackground(() => {
     await browser.tabs.sendMessage(tabId, message);
   }
 
-  browser.runtime.onMessage.addListener((raw: unknown, _sender, sendResponse) => {
-    const message = raw as Partial<HnLaterMessage>;
-    if (!message?.type) return;
-
-    (async () => {
+  const serviceImpl: HnLaterService = {
+    async open(storyId: string): Promise<HnLaterServiceResult> {
       try {
-        if (!message.storyId) throw new Error("Missing storyId");
-
-        if (message.type === "hnLater/open") {
-          const tab = await openOrFocusItemTab(message.storyId);
-          sendResponse({ ok: true, tabId: tab.id });
-          return;
-        }
-
-        if (message.type === "hnLater/continue" || message.type === "hnLater/finish") {
-          const tab = await openOrFocusItemTab(message.storyId);
-          if (tab.id == null) throw new Error("Failed to open tab");
-          await waitForTabComplete(tab.id);
-
-          await sendToTab(tab.id, message);
-          sendResponse({ ok: true, tabId: tab.id });
-          return;
-        }
-
-        sendResponse({ ok: false, error: "Unknown message type" });
+        const tab = await openOrFocusItemTab(storyId);
+        return { ok: true, tabId: tab.id };
       } catch (err) {
-        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
-    })();
+    },
+    async continue(storyId: string): Promise<HnLaterServiceResult> {
+      try {
+        const tab = await openOrFocusItemTab(storyId);
+        if (tab.id == null) throw new Error("Failed to open tab");
+        await waitForTabComplete(tab.id);
+        await sendToTab(tab.id, { type: "hnLater/continue", storyId });
+        return { ok: true, tabId: tab.id };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    async finish(storyId: string): Promise<HnLaterServiceResult> {
+      try {
+        const tab = await openOrFocusItemTab(storyId);
+        if (tab.id == null) throw new Error("Failed to open tab");
+        await waitForTabComplete(tab.id);
+        await sendToTab(tab.id, { type: "hnLater/finish", storyId });
+        return { ok: true, tabId: tab.id };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
 
-    return true;
-  });
+  registerHnLaterService(serviceImpl);
 });

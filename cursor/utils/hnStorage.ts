@@ -1,4 +1,4 @@
-import { browser } from "wxt/browser";
+import { getThreadsById, setThreadsById } from "./hnLaterStorage";
 
 export type ThreadStats = {
   totalComments: number;
@@ -40,19 +40,8 @@ export type ThreadRecord = {
   cachedStats?: ThreadStats;
 };
 
-const THREADS_BY_ID_KEY = "hnLater:threadsById";
-
 function nowMs() {
   return Date.now();
-}
-
-async function getThreadsById(): Promise<Record<string, ThreadRecord>> {
-  const result = await browser.storage.local.get(THREADS_BY_ID_KEY);
-  return (result?.[THREADS_BY_ID_KEY] ?? {}) as Record<string, ThreadRecord>;
-}
-
-async function setThreadsById(next: Record<string, ThreadRecord>): Promise<void> {
-  await browser.storage.local.set({ [THREADS_BY_ID_KEY]: next });
 }
 
 export async function upsertThread(input: {

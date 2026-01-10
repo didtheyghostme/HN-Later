@@ -87,6 +87,18 @@ Click the extension icon to open the popup:
 - Open / Continue buttons for quick access
 - More menu with Mark as Finished, Archive, Reset, and Remove options
 
+### Backup / Restore
+
+Open the extension **Options** page:
+
+- Right-click the extension icon → **Options**
+- Or open `chrome://extensions` → HN Later → **Details** → **Extension options**
+
+From there:
+
+- **Export (Backup)**: downloads a JSON file containing your saved threads + progress
+- **Import (Restore)**: load a backup JSON and choose **Merge** (safe) or **Replace all** (overwrites everything)
+
 ## Notes / limitations
 
 - Progress tracking is **marker-based** (not per-comment toggles).

@@ -97,6 +97,10 @@ function ensureStyles() {
       border-radius: 3px;
     }
 
+    .hn-later-checkpoint-chip {
+      background: rgb(255, 102, 0);
+    }
+
     .hn-later-mark { margin-left: 6px; font-size: 10px; opacity: 0.85; }
     .hn-later-mark:hover { opacity: 1; }
 
@@ -172,10 +176,49 @@ function ensureNewChip(row: HTMLTableRowElement) {
   comhead.appendChild(chip);
 }
 
+function ensureCheckpointChip(row: HTMLTableRowElement) {
+  const comhead = row.querySelector("span.comhead");
+  if (!comhead) return;
+  if (comhead.querySelector(`[data-hn-later-chip="checkpoint"]`)) return;
+
+  const chip = document.createElement("span");
+  chip.dataset.hnLaterChip = "checkpoint";
+  chip.className = "hn-later-chip hn-later-checkpoint-chip";
+  chip.textContent = "[HERE]";
+  chip.title = "Last read checkpoint (mark-to-here)";
+
+  // Prefer placing right after the "age" element (e.g., "3 hours ago") for fast scanning.
+  // If there are existing chips (e.g. [NEW]) after age, place this after them.
+  const age = comhead.querySelector<HTMLElement>("span.age");
+  if (age) {
+    let anchor: Element = age;
+    while (anchor.nextElementSibling?.hasAttribute("data-hn-later-chip")) {
+      anchor = anchor.nextElementSibling;
+    }
+    anchor.insertAdjacentElement("afterend", chip);
+    return;
+  }
+
+  const markLink = comhead.querySelector<HTMLElement>("a.hn-later-mark");
+  if (markLink) {
+    comhead.insertBefore(chip, markLink);
+    return;
+  }
+
+  comhead.appendChild(chip);
+}
+
 function removeNewChips(row: HTMLTableRowElement) {
   const comhead = row.querySelector("span.comhead");
   if (!comhead) return;
   for (const el of Array.from(comhead.querySelectorAll(`[data-hn-later-chip="new"]`))) el.remove();
+}
+
+function removeCheckpointChips(row: HTMLTableRowElement) {
+  const comhead = row.querySelector("span.comhead");
+  if (!comhead) return;
+  for (const el of Array.from(comhead.querySelectorAll(`[data-hn-later-chip="checkpoint"]`)))
+    el.remove();
 }
 
 function clearNewHighlights(rows: HTMLTableRowElement[]) {
@@ -183,6 +226,23 @@ function clearNewHighlights(rows: HTMLTableRowElement[]) {
     row.classList.remove("hn-later-new");
     removeNewChips(row);
   }
+}
+
+function clearCheckpointChips(rows: HTMLTableRowElement[]) {
+  for (const row of rows) removeCheckpointChips(row);
+}
+
+function applyCheckpointChip(
+  rows: HTMLTableRowElement[],
+  lastReadCommentId: number | undefined,
+): void {
+  clearCheckpointChips(rows);
+  if (lastReadCommentId == null) return;
+
+  const row = rows.find((r) => Number(r.id) === lastReadCommentId);
+  if (!row) return;
+
+  ensureCheckpointChip(row);
 }
 
 function applyNewHighlights(
@@ -541,6 +601,7 @@ async function initItemPage(url: URL) {
 
     thread = await getThread(storyIdStr);
     updateMarkLabels();
+    applyCheckpointChip(commentRows, thread?.lastReadCommentId);
     renderToolbar();
   }
 
@@ -565,6 +626,7 @@ async function initItemPage(url: URL) {
       seenNewCommentIds: thread.seenNewCommentIds,
     });
     applyUnreadGutters(commentRows, commentId);
+    applyCheckpointChip(commentRows, commentId);
 
     const stats = computeStats({
       commentIds,
@@ -725,6 +787,7 @@ async function initItemPage(url: URL) {
     clearNewHighlights(commentRows);
     currentNewIdx = undefined;
     applyUnreadGutters(commentRows, lastCommentId);
+    applyCheckpointChip(commentRows, lastCommentId);
 
     const stats = computeStats({
       commentIds,
@@ -838,6 +901,7 @@ async function initItemPage(url: URL) {
       thread = undefined;
       clearNewHighlights(commentRows);
       clearUnreadGutters(commentRows);
+      clearCheckpointChips(commentRows);
       currentNewIdx = undefined;
       renderToolbar();
       return;
@@ -860,6 +924,7 @@ async function initItemPage(url: URL) {
     thread = await getThread(storyIdStr);
     if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
     updateMarkLabels();
+    applyCheckpointChip(commentRows, thread?.lastReadCommentId);
     renderToolbar();
   }
 
@@ -874,6 +939,7 @@ async function initItemPage(url: URL) {
       seenNewCommentIds: thread.seenNewCommentIds,
     });
     applyUnreadGutters(commentRows, thread.lastReadCommentId);
+    applyCheckpointChip(commentRows, thread.lastReadCommentId);
     updateMarkLabels();
 
     const unreadCount = getUnreadRows().length;
@@ -914,6 +980,7 @@ async function initItemPage(url: URL) {
       seenNewCommentIds: thread.seenNewCommentIds,
     });
     applyUnreadGutters(commentRows, thread.lastReadCommentId);
+    applyCheckpointChip(commentRows, thread.lastReadCommentId);
     updateMarkLabels();
 
     const stats = computeStats({
@@ -1062,6 +1129,7 @@ async function initItemPage(url: URL) {
       thread = await getThread(storyIdStr);
       if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
       updateMarkLabels();
+      applyCheckpointChip(commentRows, thread?.lastReadCommentId);
       renderToolbar();
       return;
     }
@@ -1072,6 +1140,7 @@ async function initItemPage(url: URL) {
       seenNewCommentIds: thread.seenNewCommentIds,
     });
     applyUnreadGutters(commentRows, thread.lastReadCommentId);
+    applyCheckpointChip(commentRows, thread.lastReadCommentId);
 
     const stats = computeStats({
       commentIds,
@@ -1094,6 +1163,7 @@ async function initItemPage(url: URL) {
     // Refresh local thread copy for UI labels.
     thread = await getThread(storyIdStr);
     updateMarkLabels();
+    applyCheckpointChip(commentRows, thread?.lastReadCommentId);
     renderToolbar();
   }
 }

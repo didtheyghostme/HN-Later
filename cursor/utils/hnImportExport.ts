@@ -80,6 +80,16 @@ function parseSeenNewCommentIds(value: unknown): number[] | undefined {
   return out.length ? out : undefined;
 }
 
+function parseReadCommentIds(value: unknown): number[] | undefined {
+  if (value == null) return undefined;
+  if (!Array.isArray(value)) throw new Error("Invalid readCommentIds in backup (expected array).");
+  const out: number[] = [];
+  for (const v of value) {
+    if (isFiniteNumber(v)) out.push(v);
+  }
+  return out.length ? out : undefined;
+}
+
 function parseThreadRecord(idFromKey: string, value: unknown): ThreadRecord {
   assertSafeRecordKey(idFromKey);
   if (!isPlainObject(value)) throw new Error(`Invalid thread record for "${idFromKey}" (expected object).`);
@@ -100,12 +110,14 @@ function parseThreadRecord(idFromKey: string, value: unknown): ThreadRecord {
   const lastVisitedAt = value.lastVisitedAt;
   const statusChangedAt = value.statusChangedAt;
   const lastReadCommentId = value.lastReadCommentId;
+  const readCommentIds = value.readCommentIds;
   const dismissNewAboveUntilId = value.dismissNewAboveUntilId;
   const maxSeenCommentId = value.maxSeenCommentId;
 
   const status = parseThreadStatus(value.status);
   const frozenProgress = parseFrozenProgress(value.frozenProgress);
   const seenNewCommentIds = parseSeenNewCommentIds(value.seenNewCommentIds);
+  const parsedReadCommentIds = parseReadCommentIds(readCommentIds);
   const cachedStats = parseThreadStats(value.cachedStats);
 
   const out: ThreadRecord = {
@@ -119,6 +131,7 @@ function parseThreadRecord(idFromKey: string, value: unknown): ThreadRecord {
     ...(frozenProgress ? { frozenProgress } : {}),
     ...(isFiniteNumber(statusChangedAt) ? { statusChangedAt } : {}),
     ...(isFiniteNumber(lastReadCommentId) ? { lastReadCommentId } : {}),
+    ...(parsedReadCommentIds ? { readCommentIds: parsedReadCommentIds } : {}),
     ...(isFiniteNumber(dismissNewAboveUntilId) ? { dismissNewAboveUntilId } : {}),
     ...(isFiniteNumber(maxSeenCommentId) ? { maxSeenCommentId } : {}),
     ...(seenNewCommentIds ? { seenNewCommentIds } : {}),

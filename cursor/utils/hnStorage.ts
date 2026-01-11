@@ -27,6 +27,10 @@ export type ThreadRecord = {
   frozenProgress?: FrozenProgress;
   statusChangedAt?: number; // epoch ms (when status became finished/archived)
   lastReadCommentId?: number; // numeric HN comment id
+  // Read-set snapshot of comment IDs the user has marked as read for this thread.
+  // This is used for unread/progress tracking so DOM reorders don't regress progress.
+  // Treat missing as empty (alpha; no migration).
+  readCommentIds?: number[];
   // When set, "new" comments ABOVE lastReadCommentId (in DOM order) are only considered new if their id is
   // greater than this watermark. This allows "mark-to-here" to dismiss existing new comments above the
   // checkpoint while still allowing future new replies (which will have larger ids) to show as new.
@@ -65,6 +69,7 @@ export async function upsertThread(input: {
     frozenProgress: existing?.frozenProgress,
     statusChangedAt: existing?.statusChangedAt,
     lastReadCommentId: existing?.lastReadCommentId,
+    readCommentIds: existing?.readCommentIds,
     dismissNewAboveUntilId: existing?.dismissNewAboveUntilId,
     maxSeenCommentId: existing?.maxSeenCommentId,
     seenNewCommentIds: existing?.seenNewCommentIds,
@@ -101,6 +106,81 @@ export async function setLastReadCommentId(
   if (!existing) return;
 
   threadsById[storyId] = { ...existing, lastReadCommentId };
+  await setThreadsById(threadsById);
+}
+
+function normalizeCommentIds(ids: number[]): number[] {
+  const s = new Set<number>();
+  for (const id of ids) {
+    if (!Number.isSafeInteger(id)) continue;
+    if (id <= 0) continue;
+    s.add(id);
+  }
+  return Array.from(s).sort((a, b) => a - b);
+}
+
+function arraysEqual(a: number[], b: number[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+export async function addReadCommentIds(storyId: string, commentIds: number[]): Promise<void> {
+  if (commentIds.length === 0) return;
+
+  const threadsById = await getThreadsById();
+  const existing = threadsById[storyId];
+  if (!existing) return;
+
+  const existingNorm = normalizeCommentIds(existing.readCommentIds ?? []);
+  const next = new Set(existingNorm);
+  for (const id of commentIds) {
+    if (!Number.isSafeInteger(id)) continue;
+    if (id <= 0) continue;
+    next.add(id);
+  }
+  const nextNorm = Array.from(next).sort((a, b) => a - b);
+
+  if (arraysEqual(existingNorm, nextNorm)) {
+    // Still normalize storage if it was previously unsorted/duplicated.
+    if (!arraysEqual(existing.readCommentIds ?? [], existingNorm)) {
+      threadsById[storyId] = { ...existing, readCommentIds: existingNorm };
+      await setThreadsById(threadsById);
+    }
+    return;
+  }
+
+  threadsById[storyId] = { ...existing, readCommentIds: nextNorm };
+  await setThreadsById(threadsById);
+}
+
+export async function setReadCommentIds(
+  storyId: string,
+  readCommentIds: number[] | undefined,
+): Promise<void> {
+  const threadsById = await getThreadsById();
+  const existing = threadsById[storyId];
+  if (!existing) return;
+
+  const next = readCommentIds == null ? undefined : normalizeCommentIds(readCommentIds);
+  const prevNorm = normalizeCommentIds(existing.readCommentIds ?? []);
+
+  if (
+    (next == null && prevNorm.length === 0 && existing.readCommentIds == null) ||
+    (next != null && arraysEqual(prevNorm, next))
+  ) {
+    // Still normalize storage if needed.
+    if (next != null && !arraysEqual(existing.readCommentIds ?? [], next)) {
+      threadsById[storyId] = { ...existing, readCommentIds: next };
+      await setThreadsById(threadsById);
+    }
+    return;
+  }
+
+  threadsById[storyId] = { ...existing, readCommentIds: next };
   await setThreadsById(threadsById);
 }
 
@@ -222,6 +302,7 @@ export async function resetProgress(storyId: string): Promise<void> {
     frozenProgress: undefined,
     statusChangedAt: undefined,
     lastReadCommentId: undefined,
+    readCommentIds: undefined,
     dismissNewAboveUntilId: undefined,
     seenNewCommentIds: undefined,
     cachedStats: undefined,

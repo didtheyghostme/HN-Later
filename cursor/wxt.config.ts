@@ -6,7 +6,7 @@ export default defineConfig({
     name: "HN Later",
     description: "Read later + comment progress tracking for Hacker News.",
     version: "0.1.0",
-    permissions: ["storage", "tabs"],
+    permissions: ["storage", "unlimitedStorage", "tabs"],
     host_permissions: ["https://news.ycombinator.com/*"],
   },
   vite: () => ({

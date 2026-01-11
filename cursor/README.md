@@ -64,10 +64,10 @@ WXT will run the extension in a dev browser profile with hot reload.
 
 ### Track progress on an item page
 
-- Use **mark-to-here** on any comment to set your "last read" marker.
+- Use **mark-to-here** on any comment to mark everything above it as **read** (and place a **[HERE]** checkpoint chip).
 - **mark-to-here** also **dismisses existing "new" comments above that marker** (future new replies will still show as new).
 - The toolbar shows your progress as `read/total (%)`.
-- Unread comments (below your marker) show a blue gutter bar on the left.
+- Unread comments show a blue gutter bar on the left.
 - New comments show a **[NEW]** chip next to the timestamp.
 
 ### Resume / new comments
@@ -101,6 +101,7 @@ From there:
 
 ## Notes / limitations
 
-- Progress tracking is **marker-based** (not per-comment toggles).
+- Progress tracking is **read-set based**: read/unread is stored as a set of comment IDs, so comment reorders don’t regress progress.
+- Data is stored in `browser.storage.local` (with `unlimitedStorage` permission for heavy usage).
 - HN comment threads load as a single page; there's no multi-page comment pagination to handle.
 - New comments are tracked by comparing comment IDs to a baseline (`maxSeenCommentId`), which is only updated when you explicitly acknowledge comments (via "seen" or "✓ seen"), not on every page visit.

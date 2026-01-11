@@ -1,10 +1,12 @@
 import { defineContentScript } from "wxt/utils/define-content-script";
 
 import {
+  addReadCommentIds,
   addSeenNewCommentIds,
   getThread,
   listThreads,
   removeThread,
+  setReadCommentIds,
   unarchiveThread,
   setCachedStats,
   setDismissNewAboveUntilId,
@@ -323,14 +325,15 @@ function clearUnreadGutters(rows: HTMLTableRowElement[]) {
   for (const row of rows) row.classList.remove("hn-later-unread");
 }
 
-function applyUnreadGutters(rows: HTMLTableRowElement[], lastReadCommentId: number | undefined) {
+function applyUnreadGutters(rows: HTMLTableRowElement[], readCommentIds: number[] | undefined) {
   clearUnreadGutters(rows);
 
-  const markerId = lastReadCommentId;
-  const markerRowIndex = markerId != null ? rows.findIndex((r) => Number(r.id) === markerId) : -1;
+  const readSet = new Set(readCommentIds ?? []);
 
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
+    const id = Number(row.id);
+    if (!Number.isFinite(id)) continue;
 
     // Always treat "new" as unread, even if it appears above the checkpoint.
     if (row.classList.contains("hn-later-new")) {
@@ -338,8 +341,7 @@ function applyUnreadGutters(rows: HTMLTableRowElement[], lastReadCommentId: numb
       continue;
     }
 
-    // If the row is at/above the marker, consider it "read" (no gutter).
-    if (markerRowIndex >= 0 && i <= markerRowIndex) continue;
+    if (readSet.has(id)) continue;
 
     row.classList.add("hn-later-unread");
   }
@@ -539,6 +541,11 @@ async function initItemPage(url: URL) {
       thread = { ...thread, lastReadCommentId: nextLastReadCommentId };
     }
 
+    // Read progress is read-set based: snapshot everything up to our effective marker.
+    if (nextMarkerIdx >= 0) {
+      await addReadCommentIds(storyIdStr, commentIds.slice(0, nextMarkerIdx + 1));
+    }
+
     await addSeenNewCommentIds(storyIdStr, idsToAck.length ? idsToAck : [commentId]);
 
     // Refresh thread to get updated seenNewCommentIds
@@ -550,7 +557,7 @@ async function initItemPage(url: URL) {
       dismissNewAboveUntilId: thread?.dismissNewAboveUntilId,
       seenNewCommentIds: thread?.seenNewCommentIds,
     });
-    applyUnreadGutters(commentRows, thread?.lastReadCommentId);
+    applyUnreadGutters(commentRows, thread?.readCommentIds);
 
     // Auto-cleanup: if there are no remaining new comments, graduate the baseline to current max.
     const maxSeen = thread?.maxSeenCommentId;
@@ -564,8 +571,7 @@ async function initItemPage(url: URL) {
 
     const stats = computeStats({
       commentIds,
-      lastReadCommentId: thread?.lastReadCommentId,
-      maxSeenCommentId: thread?.maxSeenCommentId,
+      readCommentIds: thread?.readCommentIds,
       newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
@@ -611,9 +617,14 @@ async function initItemPage(url: URL) {
     await setLastReadCommentId(storyIdStr, commentId);
     thread = { ...thread, lastReadCommentId: commentId };
 
+    // Snapshot IDs up to (and including) the marker in DOM order.
+    const markerIdx = commentIds.indexOf(commentId);
+    if (markerIdx >= 0) {
+      await addReadCommentIds(storyIdStr, commentIds.slice(0, markerIdx + 1));
+    }
+
     // Dismiss existing "new" comments ABOVE (and including) this checkpoint.
     // We store a watermark so future replies (with larger ids) can still be considered new.
-    const markerIdx = commentIds.indexOf(commentId);
     const dismissUntil =
       markerIdx >= 0 ? Math.max(...commentIds.slice(0, markerIdx + 1)) : undefined;
     await setDismissNewAboveUntilId(storyIdStr, dismissUntil);
@@ -624,13 +635,14 @@ async function initItemPage(url: URL) {
       dismissNewAboveUntilId: dismissUntil,
       seenNewCommentIds: thread.seenNewCommentIds,
     });
-    applyUnreadGutters(commentRows, commentId);
+    thread = await getThread(storyIdStr);
+    if (!thread) return;
+    applyUnreadGutters(commentRows, thread?.readCommentIds);
     applyCheckpointChip(commentRows, commentId);
 
     const stats = computeStats({
       commentIds,
-      lastReadCommentId: commentId,
-      maxSeenCommentId: thread.maxSeenCommentId,
+      readCommentIds: thread?.readCommentIds,
       newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
@@ -767,7 +779,7 @@ async function initItemPage(url: URL) {
 
     // Mark the LAST comment in DOM order as read so everything is marked as seen.
     // IMPORTANT:
-    // - Reading progress ("unread") is DOM-order based (see applyUnreadGutters).
+    // - Reading progress ("unread") is read-set based (see applyUnreadGutters).
     // - HN comment IDs are roughly time-ordered, but the newest ID can appear anywhere in the DOM
     //   (e.g. a late reply under an early parent).
     // So for "mark all unread as seen", advance the read checkpoint to the bottom of the page in
@@ -778,6 +790,8 @@ async function initItemPage(url: URL) {
     await setLastReadCommentId(storyIdStr, lastCommentId);
     thread = { ...thread, lastReadCommentId: lastCommentId };
 
+    await setReadCommentIds(storyIdStr, commentIds);
+
     // Also mark all new comments as seen
     const maxSeenCommentId = Math.max(...commentIds);
     await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: maxSeenCommentId });
@@ -785,13 +799,14 @@ async function initItemPage(url: URL) {
 
     clearNewHighlights(commentRows);
     currentNewIdx = undefined;
-    applyUnreadGutters(commentRows, lastCommentId);
+    thread = await getThread(storyIdStr);
+    if (!thread) return;
+    applyUnreadGutters(commentRows, thread.readCommentIds);
     applyCheckpointChip(commentRows, lastCommentId);
 
     const stats = computeStats({
       commentIds,
-      lastReadCommentId: lastCommentId,
-      maxSeenCommentId,
+      readCommentIds: thread.readCommentIds,
       newCount: 0,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
@@ -914,14 +929,13 @@ async function initItemPage(url: URL) {
 
     const stats = computeStats({
       commentIds,
-      lastReadCommentId: thread.lastReadCommentId,
-      maxSeenCommentId: currentMax,
+      readCommentIds: thread.readCommentIds,
       newCount: 0,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
     thread = await getThread(storyIdStr);
-    if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
+    if (thread) applyUnreadGutters(commentRows, thread.readCommentIds);
     updateMarkLabels();
     applyCheckpointChip(commentRows, thread?.lastReadCommentId);
     renderToolbar();
@@ -937,7 +951,7 @@ async function initItemPage(url: URL) {
       dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
       seenNewCommentIds: thread.seenNewCommentIds,
     });
-    applyUnreadGutters(commentRows, thread.lastReadCommentId);
+    applyUnreadGutters(commentRows, thread.readCommentIds);
     applyCheckpointChip(commentRows, thread.lastReadCommentId);
     updateMarkLabels();
 
@@ -978,14 +992,13 @@ async function initItemPage(url: URL) {
       dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
       seenNewCommentIds: thread.seenNewCommentIds,
     });
-    applyUnreadGutters(commentRows, thread.lastReadCommentId);
+    applyUnreadGutters(commentRows, thread.readCommentIds);
     applyCheckpointChip(commentRows, thread.lastReadCommentId);
     updateMarkLabels();
 
     const stats = computeStats({
       commentIds,
-      lastReadCommentId: thread.lastReadCommentId,
-      maxSeenCommentId: thread.maxSeenCommentId,
+      readCommentIds: thread.readCommentIds,
       newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
@@ -1020,8 +1033,7 @@ async function initItemPage(url: URL) {
     const computedStats = saved
       ? computeStats({
           commentIds,
-          lastReadCommentId: lastRead,
-          maxSeenCommentId: thread?.maxSeenCommentId,
+          readCommentIds: thread?.readCommentIds,
           newCount: thread?.cachedStats?.newCount,
         })
       : undefined;
@@ -1118,15 +1130,14 @@ async function initItemPage(url: URL) {
       clearNewHighlights(commentRows);
       const stats = computeStats({
         commentIds,
-        lastReadCommentId: thread.lastReadCommentId,
-        maxSeenCommentId: currentMax,
+        readCommentIds: thread.readCommentIds,
         newCount: 0,
       });
       await setCachedStats({ storyId: storyIdStr, stats });
 
       // Refresh local thread copy for UI labels.
       thread = await getThread(storyIdStr);
-      if (thread) applyUnreadGutters(commentRows, thread.lastReadCommentId);
+      if (thread) applyUnreadGutters(commentRows, thread.readCommentIds);
       updateMarkLabels();
       applyCheckpointChip(commentRows, thread?.lastReadCommentId);
       renderToolbar();
@@ -1138,13 +1149,12 @@ async function initItemPage(url: URL) {
       dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
       seenNewCommentIds: thread.seenNewCommentIds,
     });
-    applyUnreadGutters(commentRows, thread.lastReadCommentId);
+    applyUnreadGutters(commentRows, thread.readCommentIds);
     applyCheckpointChip(commentRows, thread.lastReadCommentId);
 
     const stats = computeStats({
       commentIds,
-      lastReadCommentId: thread.lastReadCommentId,
-      maxSeenCommentId: thread.maxSeenCommentId,
+      readCommentIds: thread.readCommentIds,
       newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });

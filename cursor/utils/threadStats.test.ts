@@ -4,12 +4,11 @@ import { ensureBaselineMaxSeen } from "./ensureBaseline";
 import { computeStats } from "./threadStats";
 
 describe("computeStats", () => {
-  it("does not count new replies above checkpoint as read when baseline is stable", () => {
-    // Old comments are 1..100 (baseline = 100). User checkpointed comment id 5.
-    const maxSeenCommentId = 100;
-    const lastReadCommentId = 5;
+  it("counts read-set membership only (reorders/new replies don't regress progress)", () => {
+    // User has read comments 1..5 (read-set snapshot).
+    const readCommentIds = [1, 2, 3, 4, 5];
 
-    // Later, new replies (ids > 100) appear under early comments, i.e. above the checkpoint in DOM order.
+    // Later, new replies (ids > 100) appear under early comments.
     const commentIdsInDomOrder = [
       1,
       101,
@@ -25,13 +24,10 @@ describe("computeStats", () => {
 
     const stats = computeStats({
       commentIds: commentIdsInDomOrder,
-      lastReadCommentId,
-      maxSeenCommentId,
-      // assume those new comments are still new/unacknowledged
-      newCount: 2,
+      readCommentIds,
     });
 
-    // Only old comments up to (and including) 5 should count as read.
+    // Only comments in the read-set should count as read.
     expect(stats.readCount).toBe(5);
   });
 });

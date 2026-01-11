@@ -14,10 +14,11 @@ import {
   setVisitInfo,
   upsertThread,
   type ThreadRecord,
-  type ThreadStats,
 } from "../utils/hnStorage";
 
 import { hnLaterMessenger } from "../utils/hnLaterMessaging";
+import { computeStats } from "../utils/threadStats";
+import { ensureBaselineMaxSeen } from "../utils/ensureBaseline";
 
 const ITEM_BASE_URL = "https://news.ycombinator.com/item?id=";
 
@@ -344,51 +345,6 @@ function applyUnreadGutters(rows: HTMLTableRowElement[], lastReadCommentId: numb
   }
 }
 
-function computeStats(input: {
-  commentIds: number[];
-  lastReadCommentId: number | undefined;
-  maxSeenCommentId: number | undefined;
-  newCount?: number;
-}): ThreadStats {
-  const totalComments = input.commentIds.length;
-
-  const maxSeen = input.maxSeenCommentId;
-
-  // "Old" comments are those at/below the "new baseline".
-  // Reading progress is driven by a DOM-order checkpoint (lastReadCommentId), but that checkpoint may
-  // point at a *new* comment. In that case we still want to count all old comments above the checkpoint
-  // as read.
-  const markerIdx =
-    input.lastReadCommentId != null ? input.commentIds.indexOf(input.lastReadCommentId) : -1;
-  const prefix = markerIdx >= 0 ? input.commentIds.slice(0, markerIdx + 1) : [];
-
-  const oldReadCount =
-    markerIdx >= 0
-      ? maxSeen != null
-        ? prefix.filter((id) => id <= maxSeen).length
-        : prefix.length
-      : 0;
-
-  // Overall progress counts acknowledged new comments as read.
-  // - totalNew: all comments with id > maxSeen
-  // - stillNew: the count currently shown as "new" (unacknowledged / unread)
-  // => acknowledgedNew = totalNew - stillNew
-  const totalNew = maxSeen != null ? input.commentIds.filter((id) => id > maxSeen).length : 0;
-  const stillNew = maxSeen != null ? (input.newCount ?? totalNew) : 0;
-  const newAcknowledgedCount = maxSeen != null ? Math.max(0, totalNew - stillNew) : 0;
-
-  const readCount = Math.min(totalComments, oldReadCount + newAcknowledgedCount);
-
-  const percent = totalComments === 0 ? 0 : Math.round((readCount / totalComments) * 100);
-
-  return {
-    totalComments,
-    readCount,
-    percent,
-    newCount: input.newCount,
-  };
-}
-
 function scrollToRow(row: HTMLTableRowElement) {
   row.scrollIntoView({ behavior: "smooth", block: "center" });
 }
@@ -569,6 +525,13 @@ async function initItemPage(url: URL) {
 
     // Ensure thread exists, then record acknowledgements.
     thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
+    thread = await ensureBaselineMaxSeen({
+      thread,
+      storyId: storyIdStr,
+      commentIds,
+      setVisitInfo,
+    });
+    if (!thread) return;
 
     // Persist the advanced checkpoint.
     if (nextLastReadCommentId != null && nextLastReadCommentId !== thread.lastReadCommentId) {
@@ -638,6 +601,13 @@ async function initItemPage(url: URL) {
   async function handleMarkToHere(commentId: number) {
     // Marking progress implies you care about returning: auto-save the thread.
     thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
+    thread = await ensureBaselineMaxSeen({
+      thread,
+      storyId: storyIdStr,
+      commentIds,
+      setVisitInfo,
+    });
+    if (!thread) return;
     await setLastReadCommentId(storyIdStr, commentId);
     thread = { ...thread, lastReadCommentId: commentId };
 

@@ -24,6 +24,35 @@ function formatPercent(percent: number | undefined) {
   return `${percent}%`;
 }
 
+function formatExact(ms: number | undefined) {
+  if (ms == null) return "—";
+  return new Date(ms).toLocaleString();
+}
+
+function formatRelative(ms: number | undefined) {
+  if (ms == null) return "—";
+
+  const now = Date.now();
+  const diffMs = now - ms;
+  if (!Number.isFinite(diffMs) || diffMs < 60_000) return "just now";
+
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 60) return `${diffMin}m ago`;
+
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+
+  const d = new Date(ms);
+  const sameYear = d.getFullYear() === new Date(now).getFullYear();
+  const fmt = new Intl.DateTimeFormat("en-GB", sameYear
+    ? { day: "numeric", month: "short" }
+    : { day: "numeric", month: "short", year: "numeric" });
+  return fmt.format(d);
+}
+
 function titleCase(s: string) {
   return s.length ? s[0].toUpperCase() + s.slice(1) : s;
 }
@@ -205,7 +234,30 @@ function App() {
             <div key={t.id} className="rounded-lg bg-base-200 p-2">
               <div className="flex gap-2">
                 <div className="min-w-0 flex-1">
-                  <div className="line-clamp-2 text-sm font-medium">{t.title}</div>
+                  {(() => {
+                    const s = (t.status ?? "active") as ThreadStatus;
+                    const statusLabel =
+                      s === "finished" ? "Finished" : s === "archived" ? "Archived" : undefined;
+                    const tooltipLines: string[] = [];
+                    if (t.hnPostedAt != null) tooltipLines.push(`Posted: ${formatExact(t.hnPostedAt)}`);
+                    tooltipLines.push(`Saved: ${formatExact(t.addedAt)}`);
+                    if (t.lastVisitedAt != null) tooltipLines.push(`Last visited: ${formatExact(t.lastVisitedAt)}`);
+                    if (statusLabel && t.statusChangedAt != null) {
+                      tooltipLines.push(`${statusLabel}: ${formatExact(t.statusChangedAt)}`);
+                    }
+                    const tooltip = tooltipLines.join("\n");
+
+                    return (
+                      <>
+                        <div className="line-clamp-2 text-sm font-medium" title={tooltip}>
+                          {t.title}
+                        </div>
+                        <div className="mt-1 text-[11px] opacity-70" title={tooltip}>
+                          Saved {formatRelative(t.addedAt)} · Visited {formatRelative(t.lastVisitedAt)}
+                        </div>
+                      </>
+                    );
+                  })()}
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] opacity-70">
                     {(() => {
                       const s = (t.status ?? "active") as ThreadStatus;

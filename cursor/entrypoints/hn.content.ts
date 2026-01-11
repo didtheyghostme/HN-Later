@@ -44,6 +44,33 @@ function getItemTitleFromDom(): string {
   return fromDocTitle || "Hacker News";
 }
 
+function parseHnTitleTimestampToMs(raw: string | null | undefined): number | undefined {
+  if (!raw) return undefined;
+  const s = raw.trim();
+  if (!s) return undefined;
+
+  // HN typically emits an ISO-like string without timezone (e.g. "2026-01-11T04:12:33").
+  // Treat no-timezone values as UTC to avoid local-time ambiguity.
+  const hasTimezone = /([zZ]|[+-]\d\d:\d\d)$/.test(s);
+  const iso = hasTimezone ? s : `${s}Z`;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+function getStoryPostedAtFromListingSubtext(subtextTd: HTMLTableCellElement): number | undefined {
+  const ageTitle = subtextTd.querySelector<HTMLElement>("span.age")?.getAttribute("title");
+  return parseHnTitleTimestampToMs(ageTitle);
+}
+
+function getStoryPostedAtFromItemDom(): number | undefined {
+  // Story subtext lives near the top. Avoid comment ages (those are under span.comhead).
+  const ageTitle = document
+    .querySelector<HTMLTableCellElement>("td.subtext")
+    ?.querySelector<HTMLElement>("span.age")
+    ?.getAttribute("title");
+  return parseHnTitleTimestampToMs(ageTitle);
+}
+
 function ensureStyles() {
   const id = "hn-later-style";
   if (document.getElementById(id)) return;
@@ -478,7 +505,8 @@ async function initListingPage() {
         return;
       }
 
-      await upsertThread({ id: storyId, title, url: itemUrl });
+      const hnPostedAt = getStoryPostedAtFromListingSubtext(subtextTd);
+      await upsertThread({ id: storyId, title, url: itemUrl, hnPostedAt });
       savedIds.add(storyId);
       link.textContent = "saved";
     });
@@ -499,6 +527,7 @@ async function initItemPage(url: URL) {
 
   const itemUrl = getItemUrl(storyIdStr);
   const title = getItemTitleFromDom();
+  const hnPostedAt = getStoryPostedAtFromItemDom();
 
   const commentRows = getCommentRows();
   const commentIds = getCommentIdsInDomOrder(commentRows);
@@ -539,7 +568,7 @@ async function initItemPage(url: URL) {
     }
 
     // Ensure thread exists, then record acknowledgements.
-    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl });
+    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
 
     // Persist the advanced checkpoint.
     if (nextLastReadCommentId != null && nextLastReadCommentId !== thread.lastReadCommentId) {
@@ -608,7 +637,7 @@ async function initItemPage(url: URL) {
   // Handler for "mark-to-here" click on OLD comments
   async function handleMarkToHere(commentId: number) {
     // Marking progress implies you care about returning: auto-save the thread.
-    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl });
+    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
     await setLastReadCommentId(storyIdStr, commentId);
     thread = { ...thread, lastReadCommentId: commentId };
 
@@ -907,7 +936,7 @@ async function initItemPage(url: URL) {
       return;
     }
 
-    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl });
+    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
 
     // First time saving: establish baseline as "seen".
     const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;

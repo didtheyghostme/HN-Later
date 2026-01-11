@@ -20,11 +20,12 @@ export type ThreadRecord = {
   title: string;
   url: string; // canonical item url
   addedAt: number; // epoch ms
+  hnPostedAt?: number; // epoch ms (HN story posted time)
   lastVisitedAt?: number; // epoch ms
   status?: ThreadStatus; // default: active
   // Frozen snapshot used for display when status !== active. New:+N remains live.
   frozenProgress?: FrozenProgress;
-  archivedAt?: number; // epoch ms
+  statusChangedAt?: number; // epoch ms (when status became finished/archived)
   lastReadCommentId?: number; // numeric HN comment id
   // When set, "new" comments ABOVE lastReadCommentId (in DOM order) are only considered new if their id is
   // greater than this watermark. This allows "mark-to-here" to dismiss existing new comments above the
@@ -48,6 +49,7 @@ export async function upsertThread(input: {
   id: string;
   title: string;
   url: string;
+  hnPostedAt?: number;
 }): Promise<ThreadRecord> {
   const threadsById = await getThreadsById();
   const existing = threadsById[input.id];
@@ -57,10 +59,11 @@ export async function upsertThread(input: {
     title: input.title,
     url: input.url,
     addedAt: existing?.addedAt ?? nowMs(),
+    hnPostedAt: input.hnPostedAt ?? existing?.hnPostedAt,
     lastVisitedAt: existing?.lastVisitedAt,
     status: existing?.status,
     frozenProgress: existing?.frozenProgress,
-    archivedAt: existing?.archivedAt,
+    statusChangedAt: existing?.statusChangedAt,
     lastReadCommentId: existing?.lastReadCommentId,
     dismissNewAboveUntilId: existing?.dismissNewAboveUntilId,
     maxSeenCommentId: existing?.maxSeenCommentId,
@@ -177,8 +180,8 @@ export async function setThreadStatus(storyId: string, status: ThreadStatus): Pr
   const existing = threadsById[storyId];
   if (!existing) return;
 
-  const nextArchivedAt = status === "active" ? undefined : nowMs();
-  threadsById[storyId] = { ...existing, status, archivedAt: nextArchivedAt };
+  const nextStatusChangedAt = status === "active" ? undefined : nowMs();
+  threadsById[storyId] = { ...existing, status, statusChangedAt: nextStatusChangedAt };
   await setThreadsById(threadsById);
 }
 
@@ -203,7 +206,7 @@ export async function unarchiveThread(storyId: string): Promise<void> {
     ...existing,
     status: "active",
     frozenProgress: undefined,
-    archivedAt: undefined,
+    statusChangedAt: undefined,
   };
   await setThreadsById(threadsById);
 }
@@ -217,7 +220,7 @@ export async function resetProgress(storyId: string): Promise<void> {
     ...existing,
     status: "active",
     frozenProgress: undefined,
-    archivedAt: undefined,
+    statusChangedAt: undefined,
     lastReadCommentId: undefined,
     dismissNewAboveUntilId: undefined,
     seenNewCommentIds: undefined,

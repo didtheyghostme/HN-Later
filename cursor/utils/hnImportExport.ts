@@ -96,8 +96,9 @@ function parseThreadRecord(idFromKey: string, value: unknown): ThreadRecord {
   if (!isNonEmptyString(url)) throw new Error(`Invalid url for "${id}" in backup.`);
   if (!isFiniteNumber(addedAt)) throw new Error(`Invalid addedAt for "${id}" in backup (expected number).`);
 
+  const hnPostedAt = value.hnPostedAt;
   const lastVisitedAt = value.lastVisitedAt;
-  const archivedAt = value.archivedAt;
+  const statusChangedAt = value.statusChangedAt;
   const lastReadCommentId = value.lastReadCommentId;
   const dismissNewAboveUntilId = value.dismissNewAboveUntilId;
   const maxSeenCommentId = value.maxSeenCommentId;
@@ -112,10 +113,11 @@ function parseThreadRecord(idFromKey: string, value: unknown): ThreadRecord {
     title,
     url,
     addedAt,
+    ...(isFiniteNumber(hnPostedAt) ? { hnPostedAt } : {}),
     ...(isFiniteNumber(lastVisitedAt) ? { lastVisitedAt } : {}),
     ...(status ? { status } : {}),
     ...(frozenProgress ? { frozenProgress } : {}),
-    ...(isFiniteNumber(archivedAt) ? { archivedAt } : {}),
+    ...(isFiniteNumber(statusChangedAt) ? { statusChangedAt } : {}),
     ...(isFiniteNumber(lastReadCommentId) ? { lastReadCommentId } : {}),
     ...(isFiniteNumber(dismissNewAboveUntilId) ? { dismissNewAboveUntilId } : {}),
     ...(isFiniteNumber(maxSeenCommentId) ? { maxSeenCommentId } : {}),

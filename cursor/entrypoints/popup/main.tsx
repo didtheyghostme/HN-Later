@@ -47,9 +47,12 @@ function formatRelative(ms: number | undefined) {
 
   const d = new Date(ms);
   const sameYear = d.getFullYear() === new Date(now).getFullYear();
-  const fmt = new Intl.DateTimeFormat("en-GB", sameYear
-    ? { day: "numeric", month: "short" }
-    : { day: "numeric", month: "short", year: "numeric" });
+  const fmt = new Intl.DateTimeFormat(
+    "en-GB",
+    sameYear
+      ? { day: "numeric", month: "short" }
+      : { day: "numeric", month: "short", year: "numeric" },
+  );
   return fmt.format(d);
 }
 
@@ -77,7 +80,7 @@ function MoreDropdown({
   return (
     <details ref={detailsRef} className="dropdown dropdown-end">
       <summary className="btn btn-square btn-ghost btn-xs">⋮</summary>
-      <ul className="menu dropdown-content w-32 rounded-box bg-base-100 p-1 shadow">
+      <ul className="menu dropdown-content z-10 w-32 rounded-box bg-base-100 p-1 shadow">
         {React.Children.map(children, (child) => {
           if (React.isValidElement(child)) {
             return (
@@ -239,9 +242,11 @@ function App() {
                     const statusLabel =
                       s === "finished" ? "Finished" : s === "archived" ? "Archived" : undefined;
                     const tooltipLines: string[] = [];
-                    if (t.hnPostedAt != null) tooltipLines.push(`Posted: ${formatExact(t.hnPostedAt)}`);
+                    if (t.hnPostedAt != null)
+                      tooltipLines.push(`Posted: ${formatExact(t.hnPostedAt)}`);
                     tooltipLines.push(`Saved: ${formatExact(t.addedAt)}`);
-                    if (t.lastVisitedAt != null) tooltipLines.push(`Last visited: ${formatExact(t.lastVisitedAt)}`);
+                    if (t.lastVisitedAt != null)
+                      tooltipLines.push(`Last visited: ${formatExact(t.lastVisitedAt)}`);
                     if (statusLabel && t.statusChangedAt != null) {
                       tooltipLines.push(`${statusLabel}: ${formatExact(t.statusChangedAt)}`);
                     }
@@ -253,7 +258,8 @@ function App() {
                           {t.title}
                         </div>
                         <div className="mt-1 text-[11px] opacity-70" title={tooltip}>
-                          Saved {formatRelative(t.addedAt)} · Visited {formatRelative(t.lastVisitedAt)}
+                          Saved {formatRelative(t.addedAt)} · Visited{" "}
+                          {formatRelative(t.lastVisitedAt)}
                         </div>
                       </>
                     );

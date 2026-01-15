@@ -109,6 +109,17 @@ function App() {
   const [status, setStatus] = React.useState<string | null>(null);
   const [view, setView] = React.useState<ThreadStatus | "all">("active");
 
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Focus search on popup open so you can type immediately.
+  // Only runs on initial mount to avoid stealing focus on re-renders.
+  React.useEffect(() => {
+    const el = searchInputRef.current;
+    if (!el) return;
+    el.focus();
+    if (el.value) el.select();
+  }, []);
+
   const refresh = React.useCallback(async () => {
     const next = await listThreads();
     setThreads(next);
@@ -219,6 +230,7 @@ function App() {
 
       <div className="mt-2">
         <input
+          ref={searchInputRef}
           className="input input-sm input-bordered w-full"
           placeholder="Search saved threads…"
           value={query}

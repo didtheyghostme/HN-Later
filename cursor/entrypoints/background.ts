@@ -5,11 +5,15 @@ import {
   registerHnLaterService,
   type HnLaterService,
   type HnLaterServiceResult,
+  type HnLaterServiceOpenOptions,
 } from "../utils/hnLaterService";
 import { hnLaterMessenger } from "../utils/hnLaterMessaging";
 
 export default defineBackground(() => {
-  async function openOrFocusItemTab(storyId: string): Promise<Browser.tabs.Tab> {
+  async function openOrFocusItemTab(
+    storyId: string,
+    { activate = true }: HnLaterServiceOpenOptions = {},
+  ): Promise<Browser.tabs.Tab> {
     const targetUrl = `https://news.ycombinator.com/item?id=${encodeURIComponent(storyId)}`;
 
     const tabs = await browser.tabs.query({
@@ -18,10 +22,12 @@ export default defineBackground(() => {
 
     const existing = tabs.find((t) => t.id != null);
     if (existing?.id != null) {
-      if (existing.windowId != null) {
-        await browser.windows.update(existing.windowId, { focused: true });
+      if (activate) {
+        if (existing.windowId != null) {
+          await browser.windows.update(existing.windowId, { focused: true });
+        }
+        await browser.tabs.update(existing.id, { active: true });
       }
-      await browser.tabs.update(existing.id, { active: true });
       // Ensure we’re on the canonical URL (in case hash differs).
       if (existing.url !== targetUrl) {
         await browser.tabs.update(existing.id, { url: targetUrl });
@@ -29,7 +35,7 @@ export default defineBackground(() => {
       return await browser.tabs.get(existing.id);
     }
 
-    const created = await browser.tabs.create({ url: targetUrl, active: true });
+    const created = await browser.tabs.create({ url: targetUrl, active: activate });
     return created;
   }
 
@@ -71,17 +77,20 @@ export default defineBackground(() => {
   }
 
   const serviceImpl: HnLaterService = {
-    async open(storyId: string): Promise<HnLaterServiceResult> {
+    async open(storyId: string, opts?: HnLaterServiceOpenOptions): Promise<HnLaterServiceResult> {
       try {
-        const tab = await openOrFocusItemTab(storyId);
+        const tab = await openOrFocusItemTab(storyId, opts);
         return { ok: true, tabId: tab.id };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    async continue(storyId: string): Promise<HnLaterServiceResult> {
+    async continue(
+      storyId: string,
+      opts?: HnLaterServiceOpenOptions,
+    ): Promise<HnLaterServiceResult> {
       try {
-        const tab = await openOrFocusItemTab(storyId);
+        const tab = await openOrFocusItemTab(storyId, opts);
         if (tab.id == null) throw new Error("Failed to open tab");
         await waitForTabComplete(tab.id);
         await sendToTab(tab.id, "hnLater/content/continue", storyId);
@@ -90,9 +99,9 @@ export default defineBackground(() => {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    async finish(storyId: string): Promise<HnLaterServiceResult> {
+    async finish(storyId: string, opts?: HnLaterServiceOpenOptions): Promise<HnLaterServiceResult> {
       try {
-        const tab = await openOrFocusItemTab(storyId);
+        const tab = await openOrFocusItemTab(storyId, opts);
         if (tab.id == null) throw new Error("Failed to open tab");
         await waitForTabComplete(tab.id);
         await sendToTab(tab.id, "hnLater/content/finish", storyId);

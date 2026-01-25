@@ -4,7 +4,11 @@ import { browser, type Browser } from "wxt/browser";
 
 import "../../assets/tailwind.css";
 
-import { getHnLaterService, type HnLaterServiceResult } from "../../utils/hnLaterService";
+import {
+  getHnLaterService,
+  type HnLaterServiceOpenOptions,
+  type HnLaterServiceResult,
+} from "../../utils/hnLaterService";
 import {
   listThreads,
   removeThread,
@@ -147,15 +151,15 @@ function App() {
     return base.filter((t) => t.title.toLowerCase().includes(q));
   }, [threads, query, view]);
 
-  async function onOpen(storyId: string) {
+  async function onOpen(storyId: string, opts?: HnLaterServiceOpenOptions) {
     setStatus(null);
-    const res: HnLaterServiceResult = await hnLaterService.open(storyId);
+    const res: HnLaterServiceResult = await hnLaterService.open(storyId, opts);
     if (!res.ok) setStatus(res.error ?? "Failed to open thread");
   }
 
-  async function onContinue(storyId: string) {
+  async function onContinue(storyId: string, opts?: HnLaterServiceOpenOptions) {
     setStatus(null);
-    const res: HnLaterServiceResult = await hnLaterService.continue(storyId);
+    const res: HnLaterServiceResult = await hnLaterService.continue(storyId, opts);
     if (!res.ok) setStatus(res.error ?? "Failed to continue");
   }
 
@@ -322,11 +326,17 @@ function App() {
               </div>
 
               <div className="mt-2 flex flex-wrap gap-1.5">
-                <button className="btn btn-xs" onClick={() => onOpen(t.id)}>
+                <button
+                  className="btn btn-xs"
+                  onClick={(e) => onOpen(t.id, { activate: !e.metaKey })}
+                >
                   Open
                 </button>
                 {(t.status ?? "active") === "active" ? (
-                  <button className="btn btn-primary btn-xs" onClick={() => onContinue(t.id)}>
+                  <button
+                    className="btn btn-primary btn-xs"
+                    onClick={(e) => onContinue(t.id, { activate: !e.metaKey })}
+                  >
                     Continue
                   </button>
                 ) : null}

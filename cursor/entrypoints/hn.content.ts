@@ -377,6 +377,29 @@ function mountToolbarNearFirstComment(toolbar: HTMLElement, firstCommentRow: HTM
   firstCommentRow.parentElement?.insertBefore(tr, firstCommentRow);
 }
 
+function mountToolbarInCommentTree(toolbar: HTMLElement) {
+  const table = document.querySelector<HTMLTableElement>("table.comment-tree");
+  if (!table) return;
+
+  // Idempotent: don't insert a second toolbar row.
+  if (table.querySelector("tr.hn-later-toolbar-row")) return;
+
+  const tr = document.createElement("tr");
+  tr.className = "hn-later-toolbar-row";
+  const td = document.createElement("td");
+  td.colSpan = 3;
+  td.appendChild(toolbar);
+  tr.appendChild(td);
+
+  const tbody = table.tBodies[0] ?? table.createTBody();
+  const firstRow = tbody.querySelector("tr");
+  if (firstRow) {
+    tbody.insertBefore(tr, firstRow);
+  } else {
+    tbody.appendChild(tr);
+  }
+}
+
 // Index in DOM order for the currently selected "new comment" within this page's filtered list.
 let currentNewIdx: number | undefined;
 
@@ -490,7 +513,6 @@ async function initItemPage(url: URL) {
   const commentRows = getCommentRows();
   const commentIds = getCommentIdsInDomOrder(commentRows);
   const firstCommentRow = commentRows[0];
-  if (!firstCommentRow) return;
 
   // Determine saved state.
   let thread: ThreadRecord | undefined = await getThread(storyIdStr);
@@ -718,7 +740,11 @@ async function initItemPage(url: URL) {
   }
 
   const toolbar = createToolbarContainer();
-  mountToolbarNearFirstComment(toolbar, firstCommentRow);
+  if (firstCommentRow) {
+    mountToolbarNearFirstComment(toolbar, firstCommentRow);
+  } else {
+    mountToolbarInCommentTree(toolbar);
+  }
 
   function ensureFloatingNewNavContainer(): HTMLDivElement {
     const existing = document.getElementById("hn-later-floating-new-nav");

@@ -600,6 +600,7 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread?.readCommentIds,
+      forcedUnreadCommentIds: getForcedUnreadCommentIds(),
       newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
@@ -671,6 +672,7 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread?.readCommentIds,
+      forcedUnreadCommentIds: getForcedUnreadCommentIds(),
       newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
@@ -770,6 +772,16 @@ async function initItemPage(url: URL) {
     return commentRows.filter((r) => r.classList.contains("hn-later-new"));
   }
 
+  function getForcedUnreadCommentIds(): number[] {
+    const ids: number[] = [];
+    for (const row of getNewRows()) {
+      const id = Number(row.id);
+      if (!Number.isFinite(id)) continue;
+      ids.push(id);
+    }
+    return ids;
+  }
+
   function getUnreadRows(): HTMLTableRowElement[] {
     return commentRows.filter((r) => r.classList.contains("hn-later-unread"));
   }
@@ -839,6 +851,7 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread.readCommentIds,
+      forcedUnreadCommentIds: [],
       newCount: 0,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
@@ -962,6 +975,7 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread.readCommentIds,
+      forcedUnreadCommentIds: [],
       newCount: 0,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
@@ -1031,6 +1045,7 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread.readCommentIds,
+      forcedUnreadCommentIds: getForcedUnreadCommentIds(),
       newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });
@@ -1066,6 +1081,7 @@ async function initItemPage(url: URL) {
       ? computeStats({
           commentIds,
           readCommentIds: thread?.readCommentIds,
+          forcedUnreadCommentIds: getForcedUnreadCommentIds(),
           newCount: thread?.cachedStats?.newCount,
         })
       : undefined;
@@ -1163,6 +1179,7 @@ async function initItemPage(url: URL) {
       const stats = computeStats({
         commentIds,
         readCommentIds: thread.readCommentIds,
+        forcedUnreadCommentIds: [],
         newCount: 0,
       });
       await setCachedStats({ storyId: storyIdStr, stats });
@@ -1187,6 +1204,7 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread.readCommentIds,
+      forcedUnreadCommentIds: getForcedUnreadCommentIds(),
       newCount,
     });
     await setCachedStats({ storyId: storyIdStr, stats });

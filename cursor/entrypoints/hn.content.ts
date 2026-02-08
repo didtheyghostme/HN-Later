@@ -563,9 +563,15 @@ async function initItemPage(url: URL) {
       thread = { ...thread, lastReadCommentId: nextLastReadCommentId };
     }
 
-    // Read progress is read-set based: snapshot everything up to our effective marker.
-    if (nextMarkerIdx >= 0) {
-      await addReadCommentIds(storyIdStr, commentIds.slice(0, nextMarkerIdx + 1));
+    // Read progress is read-set based: snapshot everything up to the clicked position.
+    // NOTE: We intentionally use clickedIdx (not nextMarkerIdx) so that new comments
+    // interspersed between the clicked row and an existing checkpoint further down the
+    // page are NOT swept into readCommentIds.  Those comments are still visually "new"
+    // (unread gutter) and counting them as "read" would inflate the progress percentage.
+    // Old comments in that range are already in readCommentIds from the original
+    // mark-to-here action (addReadCommentIds is additive).
+    if (clickedIdx >= 0) {
+      await addReadCommentIds(storyIdStr, commentIds.slice(0, clickedIdx + 1));
     }
 
     await addSeenNewCommentIds(storyIdStr, idsToAck.length ? idsToAck : [commentId]);

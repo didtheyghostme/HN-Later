@@ -21,6 +21,7 @@ import {
 import { hnLaterMessenger } from "../utils/hnLaterMessaging";
 import { computeStats } from "../utils/threadStats";
 import { ensureBaselineMaxSeen } from "../utils/ensureBaseline";
+import { planSeenNewCommentUpdate } from "../utils/seenNewCommentUpdate";
 
 const ITEM_BASE_URL = "https://news.ycombinator.com/item?id=";
 
@@ -514,6 +515,17 @@ async function initItemPage(url: URL) {
   const commentIds = getCommentIdsInDomOrder(commentRows);
   const firstCommentRow = commentRows[0];
 
+  function getForcedUnreadCommentIdsForStats(): number[] {
+    // In this UI, comments currently marked as "new" are always treated as unread (see applyUnreadGutters).
+    const ids: number[] = [];
+    for (const row of commentRows) {
+      if (!row.classList.contains("hn-later-new")) continue;
+      const id = Number(row.id);
+      if (Number.isFinite(id)) ids.push(id);
+    }
+    return ids;
+  }
+
   // Determine saved state.
   let thread: ThreadRecord | undefined = await getThread(storyIdStr);
 
@@ -530,22 +542,13 @@ async function initItemPage(url: URL) {
   async function handleSeenNewComment(commentId: number) {
     // "Seen" should behave like "mark-to-here" for reading progress: advance the checkpoint to at least
     // this row in DOM order (never move backwards).
-    const clickedIdx = commentIds.indexOf(commentId);
-    if (clickedIdx < 0) return;
-
-    const currentMarkerIdx =
-      thread?.lastReadCommentId != null ? commentIds.indexOf(thread.lastReadCommentId) : -1;
-    const nextMarkerIdx = Math.max(currentMarkerIdx, clickedIdx);
-    const nextLastReadCommentId = commentIds[nextMarkerIdx];
-
-    // Acknowledge all currently-new comments up to (and including) the clicked one in DOM order.
-    const idsToAck: number[] = [];
-    for (let i = 0; i <= clickedIdx; i += 1) {
-      const row = commentRows[i];
-      if (!row?.classList.contains("hn-later-new")) continue;
-      const id = Number(row.id);
-      if (Number.isFinite(id)) idsToAck.push(id);
-    }
+    const plan = planSeenNewCommentUpdate({
+      commentIds,
+      lastReadCommentId: thread?.lastReadCommentId,
+      clickedCommentId: commentId,
+      currentlyNewCommentIds: getForcedUnreadCommentIdsForStats(),
+    });
+    if (!plan) return;
 
     // Ensure thread exists, then record acknowledgements.
     thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
@@ -557,24 +560,23 @@ async function initItemPage(url: URL) {
     });
     if (!thread) return;
 
-    // Persist the advanced checkpoint.
-    if (nextLastReadCommentId != null && nextLastReadCommentId !== thread.lastReadCommentId) {
-      await setLastReadCommentId(storyIdStr, nextLastReadCommentId);
-      thread = { ...thread, lastReadCommentId: nextLastReadCommentId };
+    // Persist the advanced checkpoint (never move backwards).
+    if (
+      plan.shouldUpdateLastReadCommentId &&
+      plan.nextLastReadCommentId != null &&
+      plan.nextLastReadCommentId !== thread.lastReadCommentId
+    ) {
+      await setLastReadCommentId(storyIdStr, plan.nextLastReadCommentId);
+      thread = { ...thread, lastReadCommentId: plan.nextLastReadCommentId };
     }
 
-    // Read progress is read-set based: snapshot everything up to the clicked position.
-    // NOTE: We intentionally use clickedIdx (not nextMarkerIdx) so that new comments
-    // interspersed between the clicked row and an existing checkpoint further down the
-    // page are NOT swept into readCommentIds.  Those comments are still visually "new"
-    // (unread gutter) and counting them as "read" would inflate the progress percentage.
-    // Old comments in that range are already in readCommentIds from the original
-    // mark-to-here action (addReadCommentIds is additive).
-    if (clickedIdx >= 0) {
-      await addReadCommentIds(storyIdStr, commentIds.slice(0, clickedIdx + 1));
-    }
+    // Read progress is read-set based:
+    // - If the checkpoint advances, snapshot everything up to the clicked row (mark-to-here semantics).
+    // - If the checkpoint does NOT advance (clicked above existing checkpoint), only mark the
+    //   acknowledged new comments as read (avoid widening the read-set to unrelated still-new comments).
+    await addReadCommentIds(storyIdStr, plan.readCommentIdsToAdd);
 
-    await addSeenNewCommentIds(storyIdStr, idsToAck.length ? idsToAck : [commentId]);
+    await addSeenNewCommentIds(storyIdStr, plan.seenNewCommentIdsToAdd);
 
     // Refresh thread to get updated seenNewCommentIds
     thread = await getThread(storyIdStr);
@@ -600,8 +602,8 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread?.readCommentIds,
-      forcedUnreadCommentIds: getForcedUnreadCommentIds(),
       newCount,
+      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
@@ -672,8 +674,8 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread?.readCommentIds,
-      forcedUnreadCommentIds: getForcedUnreadCommentIds(),
       newCount,
+      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
     });
     await setCachedStats({ storyId: storyIdStr, stats });
     const nextThread: ThreadRecord = { ...thread, cachedStats: stats };
@@ -772,16 +774,6 @@ async function initItemPage(url: URL) {
     return commentRows.filter((r) => r.classList.contains("hn-later-new"));
   }
 
-  function getForcedUnreadCommentIds(): number[] {
-    const ids: number[] = [];
-    for (const row of getNewRows()) {
-      const id = Number(row.id);
-      if (!Number.isFinite(id)) continue;
-      ids.push(id);
-    }
-    return ids;
-  }
-
   function getUnreadRows(): HTMLTableRowElement[] {
     return commentRows.filter((r) => r.classList.contains("hn-later-unread"));
   }
@@ -851,8 +843,8 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread.readCommentIds,
-      forcedUnreadCommentIds: [],
       newCount: 0,
+      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
@@ -975,8 +967,8 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread.readCommentIds,
-      forcedUnreadCommentIds: [],
       newCount: 0,
+      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
@@ -1045,8 +1037,8 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread.readCommentIds,
-      forcedUnreadCommentIds: getForcedUnreadCommentIds(),
       newCount,
+      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 
@@ -1081,8 +1073,8 @@ async function initItemPage(url: URL) {
       ? computeStats({
           commentIds,
           readCommentIds: thread?.readCommentIds,
-          forcedUnreadCommentIds: getForcedUnreadCommentIds(),
           newCount: thread?.cachedStats?.newCount,
+          forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
         })
       : undefined;
     const progressForDisplay =
@@ -1179,8 +1171,8 @@ async function initItemPage(url: URL) {
       const stats = computeStats({
         commentIds,
         readCommentIds: thread.readCommentIds,
-        forcedUnreadCommentIds: [],
         newCount: 0,
+        forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
       });
       await setCachedStats({ storyId: storyIdStr, stats });
 
@@ -1204,8 +1196,8 @@ async function initItemPage(url: URL) {
     const stats = computeStats({
       commentIds,
       readCommentIds: thread.readCommentIds,
-      forcedUnreadCommentIds: getForcedUnreadCommentIds(),
       newCount,
+      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
     });
     await setCachedStats({ storyId: storyIdStr, stats });
 

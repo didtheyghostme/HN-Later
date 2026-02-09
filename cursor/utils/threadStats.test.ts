@@ -31,28 +31,17 @@ describe("computeStats", () => {
     expect(stats.readCount).toBe(5);
   });
 
-  it("treats forced-unread IDs as unread even when they are in readCommentIds", () => {
+  it('excludes "forced unread" IDs from progress (e.g. new overrides read)', () => {
+    const commentIds = [1, 2, 3, 4];
+
     const stats = computeStats({
-      commentIds: [1, 2, 3, 4, 5],
-      readCommentIds: [1, 2, 3, 4, 5],
-      forcedUnreadCommentIds: [4, 5],
+      commentIds,
+      readCommentIds: [1, 2, 3, 4],
+      forcedUnreadCommentIds: [3, 4],
     });
 
-    expect(stats.totalComments).toBe(5);
-    expect(stats.readCount).toBe(3);
-    expect(stats.percent).toBe(60);
-  });
-
-  it("ignores forced-unread IDs that are not present in current commentIds", () => {
-    const stats = computeStats({
-      commentIds: [1, 2, 3],
-      readCommentIds: [1, 2, 3],
-      forcedUnreadCommentIds: [99, 100],
-    });
-
-    expect(stats.totalComments).toBe(3);
-    expect(stats.readCount).toBe(3);
-    expect(stats.percent).toBe(100);
+    expect(stats.readCount).toBe(2);
+    expect(stats.percent).toBe(50);
   });
 });
 
@@ -95,3 +84,4 @@ describe("ensureBaselineMaxSeen", () => {
     expect(next?.maxSeenCommentId).toBe(42);
   });
 });
+

@@ -3,8 +3,10 @@ import type { ThreadStats } from "./hnStorage";
 export function computeStats(input: {
   commentIds: number[];
   readCommentIds: number[] | undefined;
-  forcedUnreadCommentIds?: number[];
   newCount?: number;
+  // Comment IDs that should be treated as unread for display/stats even if they exist in readCommentIds.
+  // This is used to align progress % with UI rules like "new overrides read".
+  forcedUnreadCommentIds?: number[];
 }): ThreadStats {
   const totalComments = input.commentIds.length;
 
@@ -24,3 +26,4 @@ export function computeStats(input: {
     newCount: input.newCount,
   };
 }
+

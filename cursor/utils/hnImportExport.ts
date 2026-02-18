@@ -145,8 +145,14 @@ function parseStarredCommentRecord(idFromKey: string, value: unknown): StarredCo
   if (!isFiniteNumber(starredAt))
     throw new Error(`Invalid starredAt for starred comment "${idFromKey}" in backup (expected number).`);
 
-  const author = parseOptionalTrimmedStringField(value.author, "author");
-  const commentText = parseOptionalTrimmedStringField(value.commentText, "commentText");
+  const author = value.author;
+  const commentText = value.commentText;
+  if (!isNonEmptyString(author)) {
+    throw new Error(`Invalid author for starred comment "${idFromKey}" in backup.`);
+  }
+  if (!isNonEmptyString(commentText)) {
+    throw new Error(`Invalid commentText for starred comment "${idFromKey}" in backup.`);
+  }
   const note = parseOptionalTrimmedStringField(value.note, "note");
   const noteUpdatedAtRaw = value.noteUpdatedAt;
   const noteUpdatedAt =
@@ -166,8 +172,8 @@ function parseStarredCommentRecord(idFromKey: string, value: unknown): StarredCo
     storyTitle: storyTitle.trim(),
     storyUrl: storyUrl.trim(),
     starredAt,
-    ...(author ? { author } : {}),
-    ...(commentText ? { commentText } : {}),
+    author: author.trim(),
+    commentText: commentText.trim(),
     ...(note ? { note } : {}),
     ...(noteUpdatedAt != null ? { noteUpdatedAt } : {}),
   };

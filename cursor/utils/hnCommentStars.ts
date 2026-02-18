@@ -5,8 +5,8 @@ export type StarredCommentRecord = {
   storyId: string;
   storyTitle: string;
   storyUrl: string;
-  author?: string;
-  commentText?: string;
+  author: string;
+  commentText: string;
   starredAt: number;
   note?: string;
   noteUpdatedAt?: number;
@@ -22,6 +22,12 @@ function trimOrUndefined(s: string | undefined): string | undefined {
   if (s == null) return undefined;
   const t = s.trim();
   return t.length ? t : undefined;
+}
+
+function trimRequired(s: string, fieldName: string): string {
+  const t = s.trim();
+  if (!t.length) throw new Error(`Invalid ${fieldName}: expected non-empty string`);
+  return t;
 }
 
 export async function getStarredCommentsById(): Promise<Record<string, StarredCommentRecord>> {
@@ -57,8 +63,8 @@ export async function upsertStarredComment(record: StarredCommentRecord): Promis
     storyId: record.storyId.trim(),
     storyTitle: record.storyTitle.trim(),
     storyUrl: record.storyUrl.trim(),
-    author: trimOrUndefined(record.author),
-    commentText: trimOrUndefined(record.commentText),
+    author: trimRequired(record.author, "author"),
+    commentText: trimRequired(record.commentText, "commentText"),
     note: trimOrUndefined(record.note),
   };
   await setCommentStarsById(starsById);

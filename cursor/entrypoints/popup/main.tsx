@@ -417,29 +417,22 @@ function App() {
                 <div className="line-clamp-2 text-sm font-medium">{s.storyTitle}</div>
                 <div className="mt-1 text-[11px] opacity-70">
                   Starred {formatRelative(s.starredAt)}{" "}
-                  {s.author ? `· ${s.author}` : "· unknown"} · #{s.commentId}
+                  · {s.author} · #{s.commentId}
                 </div>
-                {(() => {
-                  const preview = s.commentText
-                    ? s.commentText.replace(/\s+/g, " ").trim()
-                    : undefined;
-                  return preview ? (
-                    <div className="mt-1 line-clamp-3 text-xs opacity-80">{preview}</div>
-                  ) : null;
-                })()}
+                <div className="mt-1 line-clamp-3 text-xs opacity-80">
+                  {s.commentText.replace(/\s+/g, " ").trim()}
+                </div>
 
-                {s.commentText ? (
-                  <details className="collapse collapse-arrow mt-2 rounded-lg bg-base-100">
-                    <summary className="collapse-title py-2 text-xs font-medium opacity-80">
-                      Full comment
-                    </summary>
-                    <div className="collapse-content">
-                      <div className="max-h-48 overflow-auto whitespace-pre-wrap text-xs opacity-90">
-                        {s.commentText}
-                      </div>
+                <details className="collapse collapse-arrow mt-2 rounded-lg bg-base-100">
+                  <summary className="collapse-title py-2 text-xs font-medium opacity-80">
+                    Full comment
+                  </summary>
+                  <div className="collapse-content">
+                    <div className="max-h-48 overflow-auto whitespace-pre-wrap text-xs opacity-90">
+                      {s.commentText}
                     </div>
-                  </details>
-                ) : null}
+                  </div>
+                </details>
                 {s.note ? (
                   <div className="mt-2 whitespace-pre-wrap rounded-lg bg-base-100 p-2 text-xs">
                     {s.note}

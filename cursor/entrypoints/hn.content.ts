@@ -141,6 +141,7 @@ function ensureStyles() {
 
     .hn-later-star { margin-left: 6px; font-size: 12px; opacity: 0.9; text-decoration: none; }
     .hn-later-star:hover { opacity: 1; }
+    .hn-later-star-error { margin-left: 6px; font-size: 10px; color: rgba(180, 0, 0, 0.9); }
 
     .hn-later-mark { margin-left: 6px; font-size: 10px; opacity: 0.85; }
     .hn-later-mark:hover { opacity: 1; }
@@ -616,10 +617,29 @@ async function initItemPage(url: URL) {
   }
 
   function extractCommentText(row: HTMLTableRowElement): string | undefined {
-    const raw = getCommTextEl(row)?.innerText ?? getCommTextEl(row)?.textContent;
-    if (!raw) return undefined;
-    const t = raw.trim();
-    return t.length ? t : undefined;
+    const el = getCommTextEl(row);
+    if (!el) return undefined;
+
+    // Prefer textContent (works even if the comment is collapsed/hidden).
+    const fromTextContent = el.textContent?.trim();
+    if (fromTextContent) return fromTextContent;
+
+    // Fallback to innerText (visible rendering).
+    const fromInnerText = el.innerText?.trim();
+    return fromInnerText || undefined;
+  }
+
+  function flashStarError(comhead: HTMLElement, commentId: number, message: string) {
+    const id = `hn-later-star-error-${commentId}`;
+    const existing = comhead.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
+    if (existing) existing.remove();
+
+    const span = document.createElement("span");
+    span.id = id;
+    span.className = "hn-later-star-error";
+    span.textContent = message;
+    comhead.appendChild(span);
+    setTimeout(() => span.remove(), 2500);
   }
 
   function ensureInlineNoteContainer(
@@ -818,13 +838,20 @@ async function initItemPage(url: URL) {
           return;
         }
 
+        const author = extractCommentAuthor(row);
+        const commentText = extractCommentText(row);
+        if (!author || !commentText) {
+          flashStarError(comhead, commentId, "Couldn’t capture comment (expand and retry)");
+          return;
+        }
+
         const record: StarredCommentRecord = {
           commentId: Math.trunc(commentId),
           storyId: storyIdStr,
           storyTitle: title,
           storyUrl: itemUrl,
-          author: extractCommentAuthor(row),
-          commentText: extractCommentText(row),
+          author,
+          commentText,
           starredAt: Date.now(),
         };
 

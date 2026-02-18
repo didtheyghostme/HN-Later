@@ -168,7 +168,7 @@ function App() {
     const q = query.trim().toLowerCase();
     if (!q) return stars;
     return stars.filter((s) => {
-      const parts = [s.storyTitle, s.author ?? "", s.snippet ?? "", s.note ?? ""];
+      const parts = [s.storyTitle, s.author ?? "", s.commentText ?? "", s.note ?? ""];
       return parts.join("\n").toLowerCase().includes(q);
     });
   }, [stars, query]);
@@ -419,8 +419,26 @@ function App() {
                   Starred {formatRelative(s.starredAt)}{" "}
                   {s.author ? `· ${s.author}` : "· unknown"} · #{s.commentId}
                 </div>
-                {s.snippet ? (
-                  <div className="mt-1 line-clamp-3 text-xs opacity-80">{s.snippet}</div>
+                {(() => {
+                  const preview = s.commentText
+                    ? s.commentText.replace(/\s+/g, " ").trim()
+                    : undefined;
+                  return preview ? (
+                    <div className="mt-1 line-clamp-3 text-xs opacity-80">{preview}</div>
+                  ) : null;
+                })()}
+
+                {s.commentText ? (
+                  <details className="collapse collapse-arrow mt-2 rounded-lg bg-base-100">
+                    <summary className="collapse-title py-2 text-xs font-medium opacity-80">
+                      Full comment
+                    </summary>
+                    <div className="collapse-content">
+                      <div className="max-h-48 overflow-auto whitespace-pre-wrap text-xs opacity-90">
+                        {s.commentText}
+                      </div>
+                    </div>
+                  </details>
                 ) : null}
                 {s.note ? (
                   <div className="mt-2 whitespace-pre-wrap rounded-lg bg-base-100 p-2 text-xs">

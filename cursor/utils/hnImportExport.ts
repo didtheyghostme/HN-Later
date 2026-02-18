@@ -146,7 +146,7 @@ function parseStarredCommentRecord(idFromKey: string, value: unknown): StarredCo
     throw new Error(`Invalid starredAt for starred comment "${idFromKey}" in backup (expected number).`);
 
   const author = parseOptionalTrimmedStringField(value.author, "author");
-  const snippet = parseOptionalTrimmedStringField(value.snippet, "snippet");
+  const commentText = parseOptionalTrimmedStringField(value.commentText, "commentText");
   const note = parseOptionalTrimmedStringField(value.note, "note");
   const noteUpdatedAtRaw = value.noteUpdatedAt;
   const noteUpdatedAt =
@@ -167,7 +167,7 @@ function parseStarredCommentRecord(idFromKey: string, value: unknown): StarredCo
     storyUrl: storyUrl.trim(),
     starredAt,
     ...(author ? { author } : {}),
-    ...(snippet ? { snippet } : {}),
+    ...(commentText ? { commentText } : {}),
     ...(note ? { note } : {}),
     ...(noteUpdatedAt != null ? { noteUpdatedAt } : {}),
   };

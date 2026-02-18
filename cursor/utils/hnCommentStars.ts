@@ -6,7 +6,7 @@ export type StarredCommentRecord = {
   storyTitle: string;
   storyUrl: string;
   author?: string;
-  snippet?: string;
+  commentText?: string;
   starredAt: number;
   note?: string;
   noteUpdatedAt?: number;
@@ -58,7 +58,7 @@ export async function upsertStarredComment(record: StarredCommentRecord): Promis
     storyTitle: record.storyTitle.trim(),
     storyUrl: record.storyUrl.trim(),
     author: trimOrUndefined(record.author),
-    snippet: trimOrUndefined(record.snippet),
+    commentText: trimOrUndefined(record.commentText),
     note: trimOrUndefined(record.note),
   };
   await setCommentStarsById(starsById);

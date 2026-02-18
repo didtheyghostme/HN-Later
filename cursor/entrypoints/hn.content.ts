@@ -610,13 +610,16 @@ async function initItemPage(url: URL) {
     return s || undefined;
   }
 
-  function extractCommentSnippet(row: HTMLTableRowElement): string | undefined {
-    const raw = row.querySelector<HTMLElement>("span.commtext")?.textContent;
+  function getCommTextEl(row: HTMLTableRowElement): HTMLElement | null {
+    // HN uses <div class="commtext c00">...</div> (not a span).
+    return row.querySelector<HTMLElement>(".commtext");
+  }
+
+  function extractCommentText(row: HTMLTableRowElement): string | undefined {
+    const raw = getCommTextEl(row)?.innerText ?? getCommTextEl(row)?.textContent;
     if (!raw) return undefined;
-    const collapsed = raw.replace(/\s+/g, " ").trim();
-    if (!collapsed) return undefined;
-    const maxLen = 280;
-    return collapsed.length > maxLen ? `${collapsed.slice(0, maxLen - 1)}…` : collapsed;
+    const t = raw.trim();
+    return t.length ? t : undefined;
   }
 
   function ensureInlineNoteContainer(
@@ -821,7 +824,7 @@ async function initItemPage(url: URL) {
           storyTitle: title,
           storyUrl: itemUrl,
           author: extractCommentAuthor(row),
-          snippet: extractCommentSnippet(row),
+          commentText: extractCommentText(row),
           starredAt: Date.now(),
         };
 

@@ -6,6 +6,7 @@ A **Manifest V3** Chrome extension for `news.ycombinator.com`:
 - Track comment reading progress with a **Mark-to-here** marker
 - Show **% read** per thread (saved)
 - Highlight **new comments** (new arrivals since you last acknowledged them)
+- Star individual **comments** (with optional **notes**) for revisiting
 - **Continue** (resume where you left off)
 - Navigate through **unread comments** with a floating navigator
 
@@ -70,6 +71,12 @@ WXT will run the extension in a dev browser profile with hot reload.
 - Unread comments show a blue gutter bar on the left.
 - New comments show a **[NEW]** chip next to the timestamp.
 
+### Star comments (with notes)
+
+- On an item page (`/item?id=...`), click **☆** next to any comment to star it (it becomes **★**).
+- When you star a comment, an inline note editor appears under that comment.
+- Starred comments (and notes) appear in the popup under **Starred**.
+
 ### Resume / new comments
 
 - **Continue**: jumps to your last read marker (or the first comment if you haven't set one).
@@ -83,7 +90,8 @@ WXT will run the extension in a dev browser profile with hot reload.
 
 Click the extension icon to open the popup:
 
-- Search saved threads
+- Toggle between **Threads** and **Starred**
+- Search saved threads or starred comments
 - Open / Continue buttons for quick access
 - More menu with Mark as Finished, Archive, Reset, and Remove options
 
@@ -96,7 +104,7 @@ Open the extension **Options** page:
 
 From there:
 
-- **Export (Backup)**: downloads a JSON file containing your saved threads + progress
+- **Export (Backup)**: downloads a JSON file containing your saved threads + progress + starred comments + notes
 - **Import (Restore)**: load a backup JSON and choose **Merge** (safe) or **Replace all** (overwrites everything)
 
 ## Notes / limitations

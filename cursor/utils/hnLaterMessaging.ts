@@ -9,6 +9,10 @@ export type HnLaterContentProtocolMap = {
    * Tell the content script on an HN item page to mark the current thread as finished.
    */
   "hnLater/content/finish": (data: { storyId: string }) => { ok: true };
+  /**
+   * Tell the content script on an HN item page to scroll/highlight a specific comment.
+   */
+  "hnLater/content/jumpToComment": (data: { storyId: string; commentId: number }) => { ok: true };
 };
 
 export const hnLaterMessenger = defineExtensionMessaging<HnLaterContentProtocolMap>();

@@ -49,7 +49,11 @@ function App() {
 
   const [fileName, setFileName] = React.useState<string | null>(null);
   const [fileText, setFileText] = React.useState<string | null>(null);
-  const [preview, setPreview] = React.useState<{ exportedAt: number; threadCount: number } | null>(null);
+  const [preview, setPreview] = React.useState<{
+    exportedAt: number;
+    threadCount: number;
+    starredCommentCount: number;
+  } | null>(null);
   const [parseError, setParseError] = React.useState<string | null>(null);
 
   const [importBusy, setImportBusy] = React.useState(false);
@@ -80,10 +84,13 @@ function App() {
     try {
       const data = await exportHnLaterData();
       const json = JSON.stringify(data, null, 2);
-      const count = Object.keys(data.threadsById).length;
+      const threadCount = Object.keys(data.threadsById).length;
+      const starredCommentCount = Object.keys(data.commentStarsById ?? {}).length;
       const filename = `hn-later-backup-${formatDateForFilename(data.exportedAt)}.json`;
       downloadTextFile(filename, json);
-      setExportStatus(`Downloaded backup (${count} ${count === 1 ? "thread" : "threads"}).`);
+      setExportStatus(
+        `Downloaded backup (${threadCount} ${threadCount === 1 ? "thread" : "threads"}, ${starredCommentCount} starred ${starredCommentCount === 1 ? "comment" : "comments"}).`,
+      );
     } catch (err) {
       setExportStatus(err instanceof Error ? err.message : String(err));
     } finally {
@@ -111,7 +118,8 @@ function App() {
     try {
       const backup = parseHnLaterBackupText(text);
       const threadCount = Object.keys(backup.threadsById).length;
-      setPreview({ exportedAt: backup.exportedAt, threadCount });
+      const starredCommentCount = Object.keys(backup.commentStarsById ?? {}).length;
+      setPreview({ exportedAt: backup.exportedAt, threadCount, starredCommentCount });
       setParseError(null);
     } catch (err) {
       setPreview(null);
@@ -131,8 +139,8 @@ function App() {
       await refreshCount();
       setImportStatus(
         mode === "replace"
-          ? `Restored ${importedCount} ${importedCount === 1 ? "thread" : "threads"} (replaced all existing data).`
-          : `Imported ${importedCount} ${importedCount === 1 ? "thread" : "threads"} (merged into existing data).`,
+          ? `Restored ${importedCount} ${importedCount === 1 ? "thread" : "threads"} (replaced all existing data, including starred comments/notes).`
+          : `Imported ${importedCount} ${importedCount === 1 ? "thread" : "threads"} (merged into existing data; also imports starred comments/notes).`,
       );
     } catch (err) {
       setImportStatus(err instanceof Error ? err.message : String(err));
@@ -147,7 +155,9 @@ function App() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-xl font-semibold">HN Later</div>
-            <div className="mt-1 text-sm opacity-70">Backup and restore your saved threads and progress.</div>
+            <div className="mt-1 text-sm opacity-70">
+              Backup and restore your saved threads, progress, starred comments, and notes.
+            </div>
           </div>
           <div className="text-right text-xs opacity-70">
             {currentCount == null ? "…" : `${currentCount} saved`}
@@ -168,7 +178,9 @@ function App() {
               {exportStatus ? (
                 <div className="text-sm opacity-80">{exportStatus}</div>
               ) : (
-                <div className="text-sm opacity-60">Includes saved threads + progress state.</div>
+                <div className="text-sm opacity-60">
+                  Includes saved threads, progress state, starred comments, and notes.
+                </div>
               )}
             </div>
           </div>
@@ -220,7 +232,9 @@ function App() {
             {preview ? (
               <div className="mt-3 rounded-lg bg-base-100 p-3 text-sm">
                 <div className="font-medium">Backup preview</div>
-                <div className="mt-1 opacity-80">{preview.threadCount} threads</div>
+                <div className="mt-1 opacity-80">
+                  {preview.threadCount} threads · {preview.starredCommentCount} starred comments
+                </div>
                 <div className="mt-1 text-xs opacity-70">Exported: {formatDateTime(preview.exportedAt)}</div>
               </div>
             ) : null}

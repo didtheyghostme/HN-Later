@@ -22,6 +22,13 @@ import { hnLaterMessenger } from "../utils/hnLaterMessaging";
 import { computeStats } from "../utils/threadStats";
 import { ensureBaselineMaxSeen } from "../utils/ensureBaseline";
 import { planSeenNewCommentUpdate } from "../utils/seenNewCommentUpdate";
+import {
+  getStarredCommentsById,
+  removeStarredComment,
+  setStarredCommentNote,
+  upsertStarredComment,
+  type StarredCommentRecord,
+} from "../utils/hnCommentStars";
 
 const ITEM_BASE_URL = "https://news.ycombinator.com/item?id=";
 
@@ -132,8 +139,43 @@ function ensureStyles() {
       background: rgb(255, 102, 0);
     }
 
+    .hn-later-star { margin-left: 6px; font-size: 12px; opacity: 0.9; text-decoration: none; }
+    .hn-later-star:hover { opacity: 1; }
+
     .hn-later-mark { margin-left: 6px; font-size: 10px; opacity: 0.85; }
     .hn-later-mark:hover { opacity: 1; }
+
+    .hn-later-note {
+      margin-top: 6px;
+      padding: 6px 8px;
+      border: 1px solid rgba(0,0,0,0.12);
+      border-radius: 6px;
+      background: rgba(0,0,0,0.03);
+      font-size: 12px;
+    }
+    .hn-later-note .hn-later-note-header { display: flex; align-items: center; gap: 8px; }
+    .hn-later-note .hn-later-note-label { font-weight: 700; opacity: 0.75; }
+    .hn-later-note .hn-later-note-actions { margin-left: auto; display: flex; gap: 8px; }
+    .hn-later-note .hn-later-note-actions a { cursor: pointer; text-decoration: underline; }
+    .hn-later-note textarea {
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 6px;
+      font-size: 12px;
+      padding: 6px;
+      border-radius: 6px;
+      border: 1px solid rgba(0,0,0,0.18);
+    }
+    .hn-later-note button {
+      cursor: pointer;
+      border: none;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 12px;
+      background: rgba(0,0,0,0.07);
+    }
+    .hn-later-note button:hover { background: rgba(0,0,0,0.12); }
+    .hn-later-note .hn-later-note-text { margin-top: 6px; white-space: pre-wrap; }
 
     #hn-later-floating-new-nav {
       position: fixed;
@@ -434,6 +476,29 @@ function registerMessageListener() {
     return { ok: true };
   });
 
+  hnLaterMessenger.onMessage("hnLater/content/jumpToComment", async ({ data }) => {
+    const url = new URL(window.location.href);
+    if (!isItemPage(url)) return { ok: true };
+
+    const currentStoryId = getStoryIdFromItemUrl(url);
+    if (!currentStoryId || currentStoryId !== data.storyId) return { ok: true };
+
+    const el = document.getElementById(String(data.commentId));
+    const row =
+      el instanceof HTMLTableRowElement
+        ? el
+        : el?.closest?.("tr.athing.comtr") instanceof HTMLTableRowElement
+          ? (el.closest("tr.athing.comtr") as HTMLTableRowElement)
+          : null;
+
+    if (row) {
+      scrollToRow(row);
+      highlightRow(row, "hn-later-highlight");
+    }
+
+    return { ok: true };
+  });
+
   hnLaterMessenger.onMessage("hnLater/content/finish", async ({ data }) => {
     const url = new URL(window.location.href);
     if (!isItemPage(url)) return { ok: true };
@@ -528,6 +593,257 @@ async function initItemPage(url: URL) {
 
   // Determine saved state.
   let thread: ThreadRecord | undefined = await getThread(storyIdStr);
+
+  // Starred comments are stored independently from saved threads.
+  let starsById: Record<string, StarredCommentRecord> = await getStarredCommentsById();
+
+  function commentIdKey(commentId: number): string | undefined {
+    if (!Number.isFinite(commentId)) return undefined;
+    const n = Math.trunc(commentId);
+    if (!Number.isSafeInteger(n)) return undefined;
+    if (n <= 0) return undefined;
+    return String(n);
+  }
+
+  function extractCommentAuthor(row: HTMLTableRowElement): string | undefined {
+    const s = row.querySelector<HTMLAnchorElement>("span.comhead a.hnuser")?.textContent?.trim();
+    return s || undefined;
+  }
+
+  function extractCommentSnippet(row: HTMLTableRowElement): string | undefined {
+    const raw = row.querySelector<HTMLElement>("span.commtext")?.textContent;
+    if (!raw) return undefined;
+    const collapsed = raw.replace(/\s+/g, " ").trim();
+    if (!collapsed) return undefined;
+    const maxLen = 280;
+    return collapsed.length > maxLen ? `${collapsed.slice(0, maxLen - 1)}…` : collapsed;
+  }
+
+  function ensureInlineNoteContainer(
+    row: HTMLTableRowElement,
+    commentId: number,
+  ): HTMLDivElement | undefined {
+    const cell = row.querySelector<HTMLTableCellElement>("td.default");
+    if (!cell) return undefined;
+    const existing = cell.querySelector<HTMLDivElement>(
+      `div[data-hn-later-note-for="${commentId}"]`,
+    );
+    if (existing) return existing;
+
+    const el = document.createElement("div");
+    el.dataset.hnLaterNoteFor = String(commentId);
+    el.className = "hn-later-note";
+    cell.appendChild(el);
+    return el;
+  }
+
+  function removeInlineNoteContainer(row: HTMLTableRowElement, commentId: number) {
+    row.querySelector<HTMLElement>(`div[data-hn-later-note-for="${commentId}"]`)?.remove();
+  }
+
+  function renderInlineNote(
+    row: HTMLTableRowElement,
+    commentId: number,
+    opts: { startEditing?: boolean } = {},
+  ) {
+    const key = commentIdKey(commentId);
+    if (!key) return;
+
+    const record = starsById[key];
+    if (!record) {
+      removeInlineNoteContainer(row, commentId);
+      return;
+    }
+
+    const container = ensureInlineNoteContainer(row, commentId);
+    if (!container) return;
+
+    const shouldEdit =
+      opts.startEditing === true || container.dataset.hnLaterNoteEditing === "1" || false;
+    container.dataset.hnLaterNoteEditing = shouldEdit ? "1" : "0";
+
+    container.replaceChildren();
+
+    const header = document.createElement("div");
+    header.className = "hn-later-note-header";
+
+    const label = document.createElement("span");
+    label.className = "hn-later-note-label";
+    label.textContent = "Note";
+
+    const actions = document.createElement("span");
+    actions.className = "hn-later-note-actions";
+
+    header.appendChild(label);
+    header.appendChild(actions);
+
+    if (!shouldEdit) {
+      const editLink = document.createElement("a");
+      editLink.href = "#";
+      editLink.textContent = record.note ? "Edit" : "Add note";
+      editLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        container.dataset.hnLaterNoteEditing = "1";
+        renderInlineNote(row, commentId, { startEditing: true });
+      });
+      actions.appendChild(editLink);
+
+      if (record.note) {
+        const clearLink = document.createElement("a");
+        clearLink.href = "#";
+        clearLink.textContent = "Clear";
+        clearLink.addEventListener("click", async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          await setStarredCommentNote(commentId, "");
+          starsById[key] = { ...record, note: undefined, noteUpdatedAt: undefined };
+          container.dataset.hnLaterNoteEditing = "0";
+          renderInlineNote(row, commentId);
+        });
+        actions.appendChild(clearLink);
+      }
+
+      container.appendChild(header);
+
+      if (record.note) {
+        const text = document.createElement("div");
+        text.className = "hn-later-note-text";
+        text.textContent = record.note;
+        container.appendChild(text);
+      }
+
+      return;
+    }
+
+    container.appendChild(header);
+
+    const textarea = document.createElement("textarea");
+    textarea.value = record.note ?? "";
+    textarea.rows = 3;
+
+    const btnRow = document.createElement("div");
+    btnRow.style.marginTop = "6px";
+    btnRow.style.display = "flex";
+    btnRow.style.gap = "8px";
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.textContent = "Save";
+
+    const doneBtn = document.createElement("button");
+    doneBtn.type = "button";
+    doneBtn.textContent = "Done";
+
+    const save = async () => {
+      const now = Date.now();
+      const next = textarea.value;
+      await setStarredCommentNote(commentId, next);
+      const trimmed = next.trim();
+      starsById[key] = {
+        ...record,
+        note: trimmed.length ? trimmed : undefined,
+        noteUpdatedAt: trimmed.length ? now : undefined,
+      };
+      container.dataset.hnLaterNoteEditing = "0";
+      renderInlineNote(row, commentId);
+    };
+
+    saveBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await save();
+    });
+
+    doneBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      container.dataset.hnLaterNoteEditing = "0";
+      renderInlineNote(row, commentId);
+    });
+
+    textarea.addEventListener("keydown", async (e) => {
+      if (!((e.metaKey || e.ctrlKey) && e.key === "Enter")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      await save();
+    });
+
+    btnRow.appendChild(saveBtn);
+    btnRow.appendChild(doneBtn);
+
+    container.appendChild(textarea);
+    container.appendChild(btnRow);
+
+    // Focus when explicitly requested (e.g., just starred).
+    if (opts.startEditing) {
+      setTimeout(() => {
+        textarea.focus();
+        textarea.selectionStart = textarea.value.length;
+        textarea.selectionEnd = textarea.value.length;
+      }, 0);
+    }
+  }
+
+  function ensureStarLink(row: HTMLTableRowElement, comhead: HTMLElement, commentId: number) {
+    const key = commentIdKey(commentId);
+    if (!key) return;
+
+    const existingStar = comhead.querySelector<HTMLAnchorElement>(
+      `a[data-hn-later-star="${commentId}"]`,
+    );
+    const starEl = existingStar ?? document.createElement("a");
+
+    if (!existingStar) {
+      starEl.href = "#";
+      starEl.className = "hn-later-star";
+      starEl.dataset.hnLaterStar = String(commentId);
+      starEl.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const currentKey = commentIdKey(commentId);
+        if (!currentKey) return;
+        const existing = starsById[currentKey];
+
+        if (existing) {
+          await removeStarredComment(commentId);
+          delete starsById[currentKey];
+          starEl.textContent = "☆";
+          starEl.title = "Star this comment for later";
+          renderInlineNote(row, commentId);
+          return;
+        }
+
+        const record: StarredCommentRecord = {
+          commentId: Math.trunc(commentId),
+          storyId: storyIdStr,
+          storyTitle: title,
+          storyUrl: itemUrl,
+          author: extractCommentAuthor(row),
+          snippet: extractCommentSnippet(row),
+          starredAt: Date.now(),
+        };
+
+        await upsertStarredComment(record);
+        starsById[currentKey] = record;
+        starEl.textContent = "★";
+        starEl.title = "Starred comment";
+        renderInlineNote(row, commentId, { startEditing: true });
+      });
+
+      const markLink = comhead.querySelector<HTMLElement>(`a[data-hn-later-mark="${commentId}"]`);
+      if (markLink) {
+        comhead.insertBefore(starEl, markLink);
+      } else {
+        comhead.appendChild(starEl);
+      }
+    }
+
+    const starred = !!starsById[key];
+    starEl.textContent = starred ? "★" : "☆";
+    starEl.title = starred ? "Starred comment" : "Star this comment for later";
+  }
 
   // Helper to check if a comment is "new" (id > maxSeenCommentId and not individually acknowledged)
   function isNewComment(commentId: number): boolean {
@@ -714,39 +1030,47 @@ async function initItemPage(url: URL) {
     }
   }
 
-  // Inject per-comment mark-to-here/seen controls.
+  // Inject per-comment star + mark-to-here/seen controls.
   for (const row of commentRows) {
     const commentId = Number(row.id);
     if (!Number.isFinite(commentId)) continue;
 
-    const comhead = row.querySelector("span.comhead");
+    const comhead = row.querySelector<HTMLElement>("span.comhead");
     if (!comhead) continue;
-    if (comhead.querySelector(`a[data-hn-later-mark="${commentId}"]`)) continue;
 
-    const isNew = isNewComment(commentId);
+    ensureStarLink(row, comhead, commentId);
 
-    const mark = document.createElement("a");
-    mark.href = "#";
-    mark.className = "hn-later-mark";
-    mark.dataset.hnLaterMark = String(commentId);
-    mark.textContent = isNew ? "seen" : "mark-to-here";
-    mark.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    if (!comhead.querySelector(`a[data-hn-later-mark="${commentId}"]`)) {
+      const isNew = isNewComment(commentId);
 
-      // Check current state (may have changed since page load)
-      const currentlyNew = isNewComment(commentId);
+      const mark = document.createElement("a");
+      mark.href = "#";
+      mark.className = "hn-later-mark";
+      mark.dataset.hnLaterMark = String(commentId);
+      mark.textContent = isNew ? "seen" : "mark-to-here";
+      mark.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
 
-      if (currentlyNew) {
-        // NEW comment: acknowledge THIS specific new comment
-        await handleSeenNewComment(commentId);
-      } else {
-        // OLD comment: mark reading progress to here
-        await handleMarkToHere(commentId);
-      }
-    });
+        // Check current state (may have changed since page load)
+        const currentlyNew = isNewComment(commentId);
 
-    comhead.appendChild(mark);
+        if (currentlyNew) {
+          // NEW comment: acknowledge THIS specific new comment
+          await handleSeenNewComment(commentId);
+        } else {
+          // OLD comment: mark reading progress to here
+          await handleMarkToHere(commentId);
+        }
+      });
+
+      comhead.appendChild(mark);
+    }
+
+    const key = commentIdKey(commentId);
+    if (key && starsById[key]) {
+      renderInlineNote(row, commentId);
+    }
   }
 
   const toolbar = createToolbarContainer();

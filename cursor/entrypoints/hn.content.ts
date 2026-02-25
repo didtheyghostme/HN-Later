@@ -82,6 +82,18 @@ function getStoryPostedAtFromItemDom(): number | undefined {
   return parseHnTitleTimestampToMs(ageTitle);
 }
 
+function getStoryAuthorLinkFromItemDom(): HTMLAnchorElement | null {
+  return (
+    document.querySelector<HTMLTableElement>("table.fatitem")?.querySelector("td.subtext a.hnuser") ??
+    null
+  );
+}
+
+function getStoryAuthorFromItemDom(): string | undefined {
+  const s = getStoryAuthorLinkFromItemDom()?.textContent?.trim();
+  return s || undefined;
+}
+
 function ensureStyles() {
   const id = "hn-later-style";
   if (document.getElementById(id)) return;
@@ -138,6 +150,17 @@ function ensureStyles() {
     .hn-later-checkpoint-chip {
       background: rgb(255, 102, 0);
     }
+
+    .hn-later-op-user {
+      display: inline-block;
+      padding: 0 4px;
+      margin: 0 1px;
+      border-radius: 4px;
+      background: rgba(255, 102, 0, 0.14);
+      box-shadow: 0 0 0 1px rgba(255, 102, 0, 0.45) inset;
+      font-weight: 700;
+    }
+    .hn-later-op-user:hover { background: rgba(255, 102, 0, 0.22); }
 
     .hn-later-star { margin-left: 6px; font-size: 12px; opacity: 0.9; text-decoration: none; }
     .hn-later-star:hover { opacity: 1; }
@@ -580,6 +603,24 @@ async function initItemPage(url: URL) {
   const commentRows = getCommentRows();
   const commentIds = getCommentIdsInDomOrder(commentRows);
   const firstCommentRow = commentRows[0];
+
+  // Highlight the story submitter (OP) username in the header and in comments.
+  const storyAuthor = getStoryAuthorFromItemDom();
+  if (storyAuthor) {
+    const authorLink = getStoryAuthorLinkFromItemDom();
+    if (authorLink) {
+      authorLink.classList.add("hn-later-op-user");
+      if (!authorLink.title) authorLink.title = "Submitter (OP)";
+    }
+
+    for (const row of commentRows) {
+      const commentAuthor = row.querySelector<HTMLAnchorElement>("span.comhead a.hnuser");
+      if (!commentAuthor) continue;
+      if (commentAuthor.textContent?.trim() !== storyAuthor) continue;
+      commentAuthor.classList.add("hn-later-op-user");
+      if (!commentAuthor.title) commentAuthor.title = "Submitter (OP)";
+    }
+  }
 
   function getForcedUnreadCommentIdsForStats(): number[] {
     // In this UI, comments currently marked as "new" are always treated as unread (see applyUnreadGutters).

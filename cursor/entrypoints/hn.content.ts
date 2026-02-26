@@ -151,16 +151,10 @@ function ensureStyles() {
       background: rgb(255, 102, 0);
     }
 
-    .hn-later-op-user {
-      display: inline-block;
-      padding: 0 4px;
-      margin: 0 1px;
-      border-radius: 4px;
-      background: rgba(255, 102, 0, 0.14);
-      box-shadow: 0 0 0 1px rgba(255, 102, 0, 0.45) inset;
-      font-weight: 700;
+    .hn-later-op-chip {
+      background: rgb(255, 102, 0);
+      margin-left: 4px;
     }
-    .hn-later-op-user:hover { background: rgba(255, 102, 0, 0.22); }
 
     .hn-later-star { margin-left: 6px; font-size: 12px; opacity: 0.9; text-decoration: none; }
     .hn-later-star:hover { opacity: 1; }
@@ -303,6 +297,18 @@ function ensureCheckpointChip(row: HTMLTableRowElement) {
   }
 
   comhead.appendChild(chip);
+}
+
+function ensureOpChip(comhead: HTMLElement, userLink: HTMLAnchorElement): void {
+  if (comhead.querySelector(`[data-hn-later-chip="op"]`)) return;
+
+  const chip = document.createElement("span");
+  chip.dataset.hnLaterChip = "op";
+  chip.className = "hn-later-chip hn-later-op-chip";
+  chip.textContent = "OP";
+  chip.title = "Submitter (OP)";
+
+  userLink.insertAdjacentElement("afterend", chip);
 }
 
 function removeNewChips(row: HTMLTableRowElement) {
@@ -604,21 +610,18 @@ async function initItemPage(url: URL) {
   const commentIds = getCommentIdsInDomOrder(commentRows);
   const firstCommentRow = commentRows[0];
 
-  // Highlight the story submitter (OP) username in the header and in comments.
+  // Show an "OP" badge next to the submitter's username in comments.
   const storyAuthor = getStoryAuthorFromItemDom();
   if (storyAuthor) {
-    const authorLink = getStoryAuthorLinkFromItemDom();
-    if (authorLink) {
-      authorLink.classList.add("hn-later-op-user");
-      if (!authorLink.title) authorLink.title = "Submitter (OP)";
-    }
-
     for (const row of commentRows) {
-      const commentAuthor = row.querySelector<HTMLAnchorElement>("span.comhead a.hnuser");
-      if (!commentAuthor) continue;
-      if (commentAuthor.textContent?.trim() !== storyAuthor) continue;
-      commentAuthor.classList.add("hn-later-op-user");
-      if (!commentAuthor.title) commentAuthor.title = "Submitter (OP)";
+      const comhead = row.querySelector<HTMLElement>("span.comhead");
+      if (!comhead) continue;
+
+      const userLink = comhead.querySelector<HTMLAnchorElement>("a.hnuser");
+      if (!userLink) continue;
+      if (userLink.textContent?.trim() !== storyAuthor) continue;
+
+      ensureOpChip(comhead, userLink);
     }
   }
 

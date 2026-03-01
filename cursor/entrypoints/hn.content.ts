@@ -151,7 +151,15 @@ function ensureStyles() {
       background: rgb(255, 102, 0);
     }
 
+    .hn-later-op-user {
+      color: rgb(0, 102, 255) !important;
+      font-weight: bold;
+    }
     .hn-later-op-chip {
+      background: rgb(255, 102, 0);
+      color: rgb(0, 102, 255);
+      background: transparent;
+      padding: 0;
       margin-left: 4px;
       padding: 0;
       display: inline;
@@ -164,6 +172,7 @@ function ensureStyles() {
       border: none;
       border-radius: 0;
     }
+
 
     .hn-later-star { margin-left: 6px; font-size: 12px; opacity: 0.9; text-decoration: none; }
     .hn-later-star:hover { opacity: 1; }
@@ -311,6 +320,9 @@ function ensureCheckpointChip(row: HTMLTableRowElement) {
 function ensureOpChip(comhead: HTMLElement, userLink: HTMLAnchorElement): void {
   if (comhead.querySelector(`[data-hn-later-chip="op"]`)) return;
 
+    userLink.classList.add("hn-later-op-user");
+
+    
   const chip = document.createElement("span");
   chip.dataset.hnLaterChip = "op";
   chip.className = "hn-later-chip hn-later-op-chip";

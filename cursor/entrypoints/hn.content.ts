@@ -152,8 +152,17 @@ function ensureStyles() {
     }
 
     .hn-later-op-chip {
-      background: rgb(255, 102, 0);
       margin-left: 4px;
+      padding: 0;
+      display: inline;
+      vertical-align: baseline;
+      font-size: inherit;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      color: #155dca;
+      background: transparent;
+      border: none;
+      border-radius: 0;
     }
 
     .hn-later-star { margin-left: 6px; font-size: 12px; opacity: 0.9; text-decoration: none; }

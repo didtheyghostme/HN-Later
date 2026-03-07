@@ -16,17 +16,16 @@ import {
   setThreadStatus,
   setVisitInfo,
   upsertThread,
+  type ThreadStats,
   type ThreadRecord,
 } from "../utils/hnStorage";
 import { THREADS_BY_ID_KEY } from "../utils/hnLaterStorage";
-import { createLatestAsyncRunner } from "../utils/latestAsyncRunner";
 
-import { THREADS_BY_ID_KEY } from "../utils/hnLaterStorage";
 import { hnLaterMessenger } from "../utils/hnLaterMessaging";
-import { syncListingSaveLabels } from "../utils/listingSaveLabels";
 import { computeStats } from "../utils/threadStats";
 import { ensureBaselineMaxSeen } from "../utils/ensureBaseline";
 import { planSeenNewCommentUpdate } from "../utils/seenNewCommentUpdate";
+import { didStoryThreadChange, shouldBootstrapSavedThread } from "../utils/threadSync";
 import {
   getStarredCommentsById,
   removeStarredComment,
@@ -89,8 +88,9 @@ function getStoryPostedAtFromItemDom(): number | undefined {
 
 function getStoryAuthorLinkFromItemDom(): HTMLAnchorElement | null {
   return (
-    document.querySelector<HTMLTableElement>("table.fatitem")?.querySelector("td.subtext a.hnuser") ??
-    null
+    document
+      .querySelector<HTMLTableElement>("table.fatitem")
+      ?.querySelector("td.subtext a.hnuser") ?? null
   );
 }
 
@@ -560,46 +560,37 @@ function registerMessageListener() {
 async function initListingPage() {
   ensureStyles();
 
-  const loadSavedStoryIds = async () => new Set((await listThreads()).map((t) => t.id));
-  let savedStoryIds = await loadSavedStoryIds();
+  let savedIds = new Set((await listThreads()).map((t) => t.id));
 
-  const saveLinkByStoryId = new Map<string, HTMLAnchorElement>();
+  async function refreshSavedStoryLinks() {
+    savedIds = new Set((await listThreads()).map((t) => t.id));
 
-  function renderSaveLinks() {
-    for (const [storyId, link] of saveLinkByStoryId) {
-      link.textContent = savedStoryIds.has(storyId) ? "saved" : "later";
+    for (const link of Array.from(
+      document.querySelectorAll<HTMLAnchorElement>("a[data-hn-later-story-id]"),
+    )) {
+      const storyId = link.dataset.hnLaterStoryId;
+      if (!storyId) continue;
+      link.textContent = savedIds.has(storyId) ? "saved" : "later";
     }
   }
-
-  function setSavedStoryIds(nextSavedStoryIds: Set<string>) {
-    savedStoryIds = nextSavedStoryIds;
-    renderSaveLinks();
-  }
-
-  const savedStoryIdsRefresh = createLatestAsyncRunner(loadSavedStoryIds, setSavedStoryIds);
 
   const onStorageChanged = (
     changes: Record<string, Browser.storage.StorageChange>,
     area: string,
   ) => {
     if (area !== "local") return;
-    const threadChange = changes[THREADS_BY_ID_KEY];
-    if (!threadChange) return;
-
-    const nextSavedStoryIds = new Set(
-      Object.keys((threadChange.newValue ?? {}) as Record<string, unknown>),
-    );
-    savedStoryIdsRefresh.invalidate();
-    setSavedStoryIds(nextSavedStoryIds);
+    if (!changes[THREADS_BY_ID_KEY]) return;
+    void refreshSavedStoryLinks();
   };
 
   browser.storage.onChanged.addListener(onStorageChanged);
 
   const refreshIfVisible = () => {
     if (document.visibilityState !== "visible") return;
-    void savedStoryIdsRefresh.run();
+    void refreshSavedStoryLinks();
   };
 
+  document.addEventListener("visibilitychange", refreshIfVisible);
   window.addEventListener("focus", refreshIfVisible);
   window.addEventListener("pageshow", refreshIfVisible);
 
@@ -623,34 +614,25 @@ async function initListingPage() {
     link.href = "#";
     link.className = "hn-later-link";
     link.dataset.hnLaterStoryId = storyId;
-    link.textContent = savedStoryIds.has(storyId) ? "saved" : "later";
-    saveLinkByStoryId.set(storyId, link);
+    link.textContent = savedIds.has(storyId) ? "saved" : "later";
     link.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
 
-      if (savedStoryIds.has(storyId)) {
+      if (savedIds.has(storyId)) {
         await removeThread(storyId);
-        const nextSavedStoryIds = new Set(savedStoryIds);
-        nextSavedStoryIds.delete(storyId);
-        savedStoryIdsRefresh.invalidate();
-        setSavedStoryIds(nextSavedStoryIds);
+        await refreshSavedStoryLinks();
         return;
       }
 
       const hnPostedAt = getStoryPostedAtFromListingSubtext(subtextTd);
       await upsertThread({ id: storyId, title, url: itemUrl, hnPostedAt });
-      const nextSavedStoryIds = new Set(savedStoryIds);
-      nextSavedStoryIds.add(storyId);
-      savedStoryIdsRefresh.invalidate();
-      setSavedStoryIds(nextSavedStoryIds);
+      await refreshSavedStoryLinks();
     });
 
     subtextTd.appendChild(sep);
     subtextTd.appendChild(link);
   }
-
-  renderSaveLinks();
 }
 
 async function initItemPage(url: URL) {
@@ -701,6 +683,119 @@ async function initItemPage(url: URL) {
 
   // Starred comments are stored independently from saved threads.
   let starsById: Record<string, StarredCommentRecord> = await getStarredCommentsById();
+  let liveThreadStats: ThreadStats | undefined;
+  let localThreadMutationCount = 0;
+  let refreshItemPageStatePromise = Promise.resolve();
+
+  async function withLocalThreadMutation<T>(run: () => Promise<T>): Promise<T> {
+    localThreadMutationCount += 1;
+    try {
+      return await run();
+    } finally {
+      localThreadMutationCount -= 1;
+    }
+  }
+
+  function applyThreadUiState() {
+    if (!thread) {
+      liveThreadStats = undefined;
+      clearNewHighlights(commentRows);
+      clearUnreadGutters(commentRows);
+      clearCheckpointChips(commentRows);
+      currentNewIdx = undefined;
+      updateMarkLabels();
+      renderToolbar();
+      return;
+    }
+
+    const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
+      lastReadCommentId: thread.lastReadCommentId,
+      dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
+      seenNewCommentIds: thread.seenNewCommentIds,
+    });
+    applyUnreadGutters(commentRows, thread.readCommentIds);
+    applyCheckpointChip(commentRows, thread.lastReadCommentId);
+
+    liveThreadStats = computeStats({
+      commentIds,
+      readCommentIds: thread.readCommentIds,
+      newCount,
+      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+    });
+
+    updateMarkLabels();
+    renderToolbar();
+  }
+
+  async function bootstrapSavedThreadFromCurrentPage() {
+    if (!shouldBootstrapSavedThread(thread, commentIds)) return;
+
+    const currentMax = Math.max(...commentIds);
+    const stats = computeStats({
+      commentIds,
+      readCommentIds: thread?.readCommentIds,
+      newCount: 0,
+      forcedUnreadCommentIds: [],
+    });
+
+    await withLocalThreadMutation(async () => {
+      await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+      await setCachedStats({ storyId: storyIdStr, stats });
+    });
+
+    thread = await getThread(storyIdStr);
+  }
+
+  async function refreshItemPageState(options: { allowBootstrap?: boolean } = {}) {
+    thread = await getThread(storyIdStr);
+
+    if (options.allowBootstrap) {
+      await bootstrapSavedThreadFromCurrentPage();
+    }
+
+    applyThreadUiState();
+  }
+
+  function queueItemPageStateRefresh(options: { allowBootstrap?: boolean } = {}) {
+    refreshItemPageStatePromise = refreshItemPageStatePromise
+      .catch(() => undefined)
+      .then(() => refreshItemPageState(options));
+    return refreshItemPageStatePromise;
+  }
+
+  const onItemThreadStorageChanged = (
+    changes: Record<string, Browser.storage.StorageChange>,
+    area: string,
+  ) => {
+    if (localThreadMutationCount > 0) return;
+    if (area !== "local") return;
+
+    const threadsChange = changes[THREADS_BY_ID_KEY];
+    if (!threadsChange) return;
+    if (
+      !didStoryThreadChange({
+        storyId: storyIdStr,
+        oldThreadsById: threadsChange.oldValue as Record<string, ThreadRecord> | null | undefined,
+        newThreadsById: threadsChange.newValue as Record<string, ThreadRecord> | null | undefined,
+      })
+    ) {
+      return;
+    }
+
+    void queueItemPageStateRefresh({ allowBootstrap: true });
+  };
+
+  browser.storage.onChanged.addListener(onItemThreadStorageChanged);
+
+  const refreshItemPageIfVisible = () => {
+    if (localThreadMutationCount > 0) return;
+    if (document.visibilityState !== "visible") return;
+    void queueItemPageStateRefresh({ allowBootstrap: true });
+  };
+
+  document.addEventListener("visibilitychange", refreshItemPageIfVisible);
+  window.addEventListener("focus", refreshItemPageIfVisible);
+  window.addEventListener("pageshow", refreshItemPageIfVisible);
 
   function commentIdKey(commentId: number): string | undefined {
     if (!Number.isFinite(commentId)) return undefined;
@@ -1000,151 +1095,151 @@ async function initItemPage(url: URL) {
     });
     if (!plan) return;
 
-    // Ensure thread exists, then record acknowledgements.
-    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
-    thread = await ensureBaselineMaxSeen({
-      thread,
-      storyId: storyIdStr,
-      commentIds,
-      setVisitInfo,
-    });
-    if (!thread) return;
+    await withLocalThreadMutation(async () => {
+      // Ensure thread exists, then record acknowledgements.
+      thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
+      thread = await ensureBaselineMaxSeen({
+        thread,
+        storyId: storyIdStr,
+        commentIds,
+        setVisitInfo,
+      });
+      if (!thread) return;
 
-    // Persist the advanced checkpoint (never move backwards).
-    if (
-      plan.shouldUpdateLastReadCommentId &&
-      plan.nextLastReadCommentId != null &&
-      plan.nextLastReadCommentId !== thread.lastReadCommentId
-    ) {
-      await setLastReadCommentId(storyIdStr, plan.nextLastReadCommentId);
-      thread = { ...thread, lastReadCommentId: plan.nextLastReadCommentId };
-    }
-
-    // Read progress is read-set based:
-    // - If the checkpoint advances, snapshot everything up to the clicked row (mark-to-here semantics).
-    // - If the checkpoint does NOT advance (clicked above existing checkpoint), only mark the
-    //   acknowledged new comments as read (avoid widening the read-set to unrelated still-new comments).
-    await addReadCommentIds(storyIdStr, plan.readCommentIdsToAdd);
-
-    await addSeenNewCommentIds(storyIdStr, plan.seenNewCommentIdsToAdd);
-
-    // Refresh thread to get updated seenNewCommentIds
-    thread = await getThread(storyIdStr);
-
-    // Reapply new highlights with updated state
-    const { newCount } = applyNewHighlights(commentRows, thread?.maxSeenCommentId, {
-      lastReadCommentId: thread?.lastReadCommentId,
-      dismissNewAboveUntilId: thread?.dismissNewAboveUntilId,
-      seenNewCommentIds: thread?.seenNewCommentIds,
-    });
-    applyUnreadGutters(commentRows, thread?.readCommentIds);
-
-    // Auto-cleanup: if there are no remaining new comments, graduate the baseline to current max.
-    const maxSeen = thread?.maxSeenCommentId;
-    if (maxSeen != null && newCount === 0 && commentIds.length) {
-      const currentMax = Math.max(...commentIds);
-      if (currentMax > maxSeen) {
-        await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
-        thread = await getThread(storyIdStr);
+      // Persist the advanced checkpoint (never move backwards).
+      if (
+        plan.shouldUpdateLastReadCommentId &&
+        plan.nextLastReadCommentId != null &&
+        plan.nextLastReadCommentId !== thread.lastReadCommentId
+      ) {
+        await setLastReadCommentId(storyIdStr, plan.nextLastReadCommentId);
+        thread = { ...thread, lastReadCommentId: plan.nextLastReadCommentId };
       }
-    }
 
-    const stats = computeStats({
-      commentIds,
-      readCommentIds: thread?.readCommentIds,
-      newCount,
-      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+      // Read progress is read-set based:
+      // - If the checkpoint advances, snapshot everything up to the clicked row (mark-to-here semantics).
+      // - If the checkpoint does NOT advance (clicked above existing checkpoint), only mark the
+      //   acknowledged new comments as read (avoid widening the read-set to unrelated still-new comments).
+      await addReadCommentIds(storyIdStr, plan.readCommentIdsToAdd);
+
+      await addSeenNewCommentIds(storyIdStr, plan.seenNewCommentIdsToAdd);
+
+      // Refresh thread to get updated seenNewCommentIds
+      thread = await getThread(storyIdStr);
+
+      // Reapply new highlights with updated state
+      const { newCount } = applyNewHighlights(commentRows, thread?.maxSeenCommentId, {
+        lastReadCommentId: thread?.lastReadCommentId,
+        dismissNewAboveUntilId: thread?.dismissNewAboveUntilId,
+        seenNewCommentIds: thread?.seenNewCommentIds,
+      });
+      applyUnreadGutters(commentRows, thread?.readCommentIds);
+
+      // Auto-cleanup: if there are no remaining new comments, graduate the baseline to current max.
+      const maxSeen = thread?.maxSeenCommentId;
+      if (maxSeen != null && newCount === 0 && commentIds.length) {
+        const currentMax = Math.max(...commentIds);
+        if (currentMax > maxSeen) {
+          await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+          thread = await getThread(storyIdStr);
+        }
+      }
+
+      const stats = computeStats({
+        commentIds,
+        readCommentIds: thread?.readCommentIds,
+        newCount,
+        forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+      });
+      await setCachedStats({ storyId: storyIdStr, stats });
+
+      // Archived threads freeze progress for display; explicit progress actions should update the
+      // frozen snapshot to match the new state (while still preventing passive backsliding).
+      if (thread?.status === "archived") {
+        await setFrozenProgress(storyIdStr, {
+          totalComments: stats.totalComments,
+          readCount: stats.readCount,
+          percent: stats.percent,
+        });
+      }
+
+      // Finished threads keep a frozen 100% snapshot; if there are no remaining new comments, roll it
+      // forward to the latest totals (still 100%).
+      if (thread?.status === "finished" && newCount === 0) {
+        const total = commentIds.length;
+        await setFrozenProgress(storyIdStr, {
+          totalComments: total,
+          readCount: total,
+          percent: total === 0 ? 0 : 100,
+        });
+      }
     });
-    await setCachedStats({ storyId: storyIdStr, stats });
 
-    // Archived threads freeze progress for display; explicit progress actions should update the
-    // frozen snapshot to match the new state (while still preventing passive backsliding).
-    if (thread?.status === "archived") {
-      await setFrozenProgress(storyIdStr, {
-        totalComments: stats.totalComments,
-        readCount: stats.readCount,
-        percent: stats.percent,
-      });
-    }
-
-    // Finished threads keep a frozen 100% snapshot; if there are no remaining new comments, roll it
-    // forward to the latest totals (still 100%).
-    if (thread?.status === "finished" && newCount === 0) {
-      const total = commentIds.length;
-      await setFrozenProgress(storyIdStr, {
-        totalComments: total,
-        readCount: total,
-        percent: total === 0 ? 0 : 100,
-      });
-    }
-
-    thread = await getThread(storyIdStr);
-    updateMarkLabels();
-    applyCheckpointChip(commentRows, thread?.lastReadCommentId);
-    renderToolbar();
+    await queueItemPageStateRefresh();
   }
 
   // Handler for "mark-to-here" click on OLD comments
   async function handleMarkToHere(commentId: number) {
-    // Marking progress implies you care about returning: auto-save the thread.
-    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
-    thread = await ensureBaselineMaxSeen({
-      thread,
-      storyId: storyIdStr,
-      commentIds,
-      setVisitInfo,
+    await withLocalThreadMutation(async () => {
+      // Marking progress implies you care about returning: auto-save the thread.
+      thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
+      thread = await ensureBaselineMaxSeen({
+        thread,
+        storyId: storyIdStr,
+        commentIds,
+        setVisitInfo,
+      });
+      if (!thread) return;
+      await setLastReadCommentId(storyIdStr, commentId);
+      thread = { ...thread, lastReadCommentId: commentId };
+
+      // Snapshot IDs up to (and including) the marker in DOM order.
+      const markerIdx = commentIds.indexOf(commentId);
+      if (markerIdx >= 0) {
+        await addReadCommentIds(storyIdStr, commentIds.slice(0, markerIdx + 1));
+      }
+
+      // Dismiss existing "new" comments ABOVE (and including) this checkpoint.
+      // We store a watermark so future replies (with larger ids) can still be considered new.
+      const dismissUntil =
+        markerIdx >= 0 ? Math.max(...commentIds.slice(0, markerIdx + 1)) : undefined;
+      await setDismissNewAboveUntilId(storyIdStr, dismissUntil);
+      thread = { ...thread, dismissNewAboveUntilId: dismissUntil };
+
+      const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
+        lastReadCommentId: commentId,
+        dismissNewAboveUntilId: dismissUntil,
+        seenNewCommentIds: thread.seenNewCommentIds,
+      });
+      thread = await getThread(storyIdStr);
+      if (!thread) return;
+      applyUnreadGutters(commentRows, thread.readCommentIds);
+      applyCheckpointChip(commentRows, commentId);
+
+      const stats = computeStats({
+        commentIds,
+        readCommentIds: thread.readCommentIds,
+        newCount,
+        forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+      });
+      await setCachedStats({ storyId: storyIdStr, stats });
+      const nextThread: ThreadRecord = { ...thread, cachedStats: stats };
+
+      // Archived threads: update frozen snapshot on explicit progress changes (mark-to-here).
+      if (thread.status === "archived") {
+        const frozen = {
+          totalComments: stats.totalComments,
+          readCount: stats.readCount,
+          percent: stats.percent,
+        };
+        await setFrozenProgress(storyIdStr, frozen);
+        thread = { ...nextThread, frozenProgress: frozen };
+      } else {
+        thread = nextThread;
+      }
     });
-    if (!thread) return;
-    await setLastReadCommentId(storyIdStr, commentId);
-    thread = { ...thread, lastReadCommentId: commentId };
 
-    // Snapshot IDs up to (and including) the marker in DOM order.
-    const markerIdx = commentIds.indexOf(commentId);
-    if (markerIdx >= 0) {
-      await addReadCommentIds(storyIdStr, commentIds.slice(0, markerIdx + 1));
-    }
-
-    // Dismiss existing "new" comments ABOVE (and including) this checkpoint.
-    // We store a watermark so future replies (with larger ids) can still be considered new.
-    const dismissUntil =
-      markerIdx >= 0 ? Math.max(...commentIds.slice(0, markerIdx + 1)) : undefined;
-    await setDismissNewAboveUntilId(storyIdStr, dismissUntil);
-    thread = { ...thread, dismissNewAboveUntilId: dismissUntil };
-
-    const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
-      lastReadCommentId: commentId,
-      dismissNewAboveUntilId: dismissUntil,
-      seenNewCommentIds: thread.seenNewCommentIds,
-    });
-    thread = await getThread(storyIdStr);
-    if (!thread) return;
-    applyUnreadGutters(commentRows, thread?.readCommentIds);
-    applyCheckpointChip(commentRows, commentId);
-
-    const stats = computeStats({
-      commentIds,
-      readCommentIds: thread?.readCommentIds,
-      newCount,
-      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
-    });
-    await setCachedStats({ storyId: storyIdStr, stats });
-    const nextThread: ThreadRecord = { ...thread, cachedStats: stats };
-
-    // Archived threads: update frozen snapshot on explicit progress changes (mark-to-here).
-    if (thread.status === "archived") {
-      const frozen = {
-        totalComments: stats.totalComments,
-        readCount: stats.readCount,
-        percent: stats.percent,
-      };
-      await setFrozenProgress(storyIdStr, frozen);
-      thread = { ...nextThread, frozenProgress: frozen };
-    } else {
-      thread = nextThread;
-    }
-
-    // Update toolbar display if present.
-    renderToolbar();
+    await queueItemPageStateRefresh();
   }
 
   // Update mark link labels based on whether comment is new or old
@@ -1271,64 +1366,64 @@ async function initItemPage(url: URL) {
     if (!thread) return;
     if (commentIds.length === 0) return;
 
-    // Mark the LAST comment in DOM order as read so everything is marked as seen.
-    // IMPORTANT:
-    // - Reading progress ("unread") is read-set based (see applyUnreadGutters).
-    // - HN comment IDs are roughly time-ordered, but the newest ID can appear anywhere in the DOM
-    //   (e.g. a late reply under an early parent).
-    // So for "mark all unread as seen", advance the read checkpoint to the bottom of the page in
-    // DOM order (never by max numeric ID).
+    await withLocalThreadMutation(async () => {
+      // Mark the LAST comment in DOM order as read so everything is marked as seen.
+      // IMPORTANT:
+      // - Reading progress ("unread") is read-set based (see applyUnreadGutters).
+      // - HN comment IDs are roughly time-ordered, but the newest ID can appear anywhere in the DOM
+      //   (e.g. a late reply under an early parent).
+      // So for "mark all unread as seen", advance the read checkpoint to the bottom of the page in
+      // DOM order (never by max numeric ID).
 
-    const lastCommentId = commentIds[commentIds.length - 1];
+      const lastCommentId = commentIds[commentIds.length - 1];
 
-    await setLastReadCommentId(storyIdStr, lastCommentId);
-    thread = { ...thread, lastReadCommentId: lastCommentId };
+      await setLastReadCommentId(storyIdStr, lastCommentId);
+      thread = { ...thread, lastReadCommentId: lastCommentId };
 
-    await setReadCommentIds(storyIdStr, commentIds);
+      await setReadCommentIds(storyIdStr, commentIds);
 
-    // Also mark all new comments as seen
-    const maxSeenCommentId = Math.max(...commentIds);
-    await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: maxSeenCommentId });
-    await setDismissNewAboveUntilId(storyIdStr, undefined);
+      // Also mark all new comments as seen
+      const maxSeenCommentId = Math.max(...commentIds);
+      await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: maxSeenCommentId });
+      await setDismissNewAboveUntilId(storyIdStr, undefined);
 
-    clearNewHighlights(commentRows);
-    currentNewIdx = undefined;
-    thread = await getThread(storyIdStr);
-    if (!thread) return;
-    applyUnreadGutters(commentRows, thread.readCommentIds);
-    applyCheckpointChip(commentRows, lastCommentId);
+      clearNewHighlights(commentRows);
+      currentNewIdx = undefined;
+      thread = await getThread(storyIdStr);
+      if (!thread) return;
+      applyUnreadGutters(commentRows, thread.readCommentIds);
+      applyCheckpointChip(commentRows, lastCommentId);
 
-    const stats = computeStats({
-      commentIds,
-      readCommentIds: thread.readCommentIds,
-      newCount: 0,
-      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+      const stats = computeStats({
+        commentIds,
+        readCommentIds: thread.readCommentIds,
+        newCount: 0,
+        forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+      });
+      await setCachedStats({ storyId: storyIdStr, stats });
+
+      // Archived threads: update frozen snapshot on explicit progress changes (✓ seen).
+      if (thread.status === "archived") {
+        await setFrozenProgress(storyIdStr, {
+          totalComments: stats.totalComments,
+          readCount: stats.readCount,
+          percent: stats.percent,
+        });
+      }
+
+      // If this is a Finished thread, rolling new back to 0 means we're caught up again; update the
+      // frozen snapshot to reflect the latest total (still 100%).
+      if (thread.status === "finished") {
+        const total = commentIds.length;
+        await setFrozenProgress(storyIdStr, {
+          totalComments: total,
+          readCount: total,
+          percent: total === 0 ? 0 : 100,
+        });
+      }
     });
-    await setCachedStats({ storyId: storyIdStr, stats });
 
-    // Archived threads: update frozen snapshot on explicit progress changes (✓ seen).
-    if (thread.status === "archived") {
-      await setFrozenProgress(storyIdStr, {
-        totalComments: stats.totalComments,
-        readCount: stats.readCount,
-        percent: stats.percent,
-      });
-    }
-
-    // If this is a Finished thread, rolling new back to 0 means we're caught up again; update the
-    // frozen snapshot to reflect the latest total (still 100%).
-    if (thread.status === "finished") {
-      const total = commentIds.length;
-      await setFrozenProgress(storyIdStr, {
-        totalComments: total,
-        readCount: total,
-        percent: total === 0 ? 0 : 100,
-      });
-    }
-
-    thread = await getThread(storyIdStr);
-    updateMarkLabels();
-    renderToolbar();
+    await queueItemPageStateRefresh();
   }
 
   function renderFloatingNewNav() {
@@ -1405,76 +1500,60 @@ async function initItemPage(url: URL) {
   }
 
   async function onSaveToggle() {
-    if (thread) {
-      await removeThread(storyIdStr);
-      thread = undefined;
-      clearNewHighlights(commentRows);
-      clearUnreadGutters(commentRows);
-      clearCheckpointChips(commentRows);
-      currentNewIdx = undefined;
-      renderToolbar();
-      return;
-    }
+    await withLocalThreadMutation(async () => {
+      if (thread) {
+        await removeThread(storyIdStr);
+        thread = undefined;
+        return;
+      }
 
-    thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
+      thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
 
-    // First time saving: establish baseline as "seen".
-    const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
-    await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+      // First time saving: establish baseline as "seen".
+      const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
+      await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
 
-    const stats = computeStats({
-      commentIds,
-      readCommentIds: thread.readCommentIds,
-      newCount: 0,
-      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+      const stats = computeStats({
+        commentIds,
+        readCommentIds: thread.readCommentIds,
+        newCount: 0,
+        forcedUnreadCommentIds: [],
+      });
+      await setCachedStats({ storyId: storyIdStr, stats });
     });
-    await setCachedStats({ storyId: storyIdStr, stats });
 
-    thread = await getThread(storyIdStr);
-    if (thread) applyUnreadGutters(commentRows, thread.readCommentIds);
-    updateMarkLabels();
-    applyCheckpointChip(commentRows, thread?.lastReadCommentId);
-    renderToolbar();
+    await queueItemPageStateRefresh({ allowBootstrap: true });
   }
 
   async function onFinish() {
     if (!thread) await onSaveToggle();
     if (!thread) return;
 
-    // Refresh highlights/gutters so unread/new counts are accurate even if user clicks immediately.
-    const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
-      lastReadCommentId: thread.lastReadCommentId,
-      dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
-      seenNewCommentIds: thread.seenNewCommentIds,
-    });
-    applyUnreadGutters(commentRows, thread.readCommentIds);
-    applyCheckpointChip(commentRows, thread.lastReadCommentId);
-    updateMarkLabels();
+    await queueItemPageStateRefresh({ allowBootstrap: true });
+    if (!thread) return;
 
     const unreadCount = getUnreadRows().length;
+    const newCount = getNewRows().length;
     if (unreadCount > 0 || newCount > 0) {
       const ok = window.confirm(
         "Finish this thread?\n\nThis will mark all current unread/new comments as seen so progress becomes 100%.",
       );
-      if (!ok) {
-        renderToolbar();
-        return;
-      }
+      if (!ok) return;
       await markUnreadAsSeen();
     }
 
-    // Freeze at 100% (as-of now).
-    const total = commentIds.length;
-    await setThreadStatus(storyIdStr, "finished");
-    await setFrozenProgress(storyIdStr, {
-      totalComments: total,
-      readCount: total,
-      percent: total === 0 ? 0 : 100,
+    await withLocalThreadMutation(async () => {
+      // Freeze at 100% (as-of now).
+      const total = commentIds.length;
+      await setThreadStatus(storyIdStr, "finished");
+      await setFrozenProgress(storyIdStr, {
+        totalComments: total,
+        readCount: total,
+        percent: total === 0 ? 0 : 100,
+      });
     });
 
-    thread = await getThread(storyIdStr);
-    updateMarkLabels();
-    renderToolbar();
+    await queueItemPageStateRefresh();
   }
 
   finishActiveThread = onFinish;
@@ -1483,61 +1562,57 @@ async function initItemPage(url: URL) {
     if (!thread) await onSaveToggle();
     if (!thread) return;
 
-    const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
-      lastReadCommentId: thread.lastReadCommentId,
-      dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
-      seenNewCommentIds: thread.seenNewCommentIds,
-    });
-    applyUnreadGutters(commentRows, thread.readCommentIds);
-    applyCheckpointChip(commentRows, thread.lastReadCommentId);
-    updateMarkLabels();
+    await queueItemPageStateRefresh({ allowBootstrap: true });
+    if (!thread) return;
 
-    const stats = computeStats({
-      commentIds,
-      readCommentIds: thread.readCommentIds,
-      newCount,
-      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
-    });
-    await setCachedStats({ storyId: storyIdStr, stats });
+    const stats =
+      liveThreadStats ??
+      computeStats({
+        commentIds,
+        readCommentIds: thread.readCommentIds,
+        newCount: getNewRows().length,
+        forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+      });
 
-    await setThreadStatus(storyIdStr, "archived");
-    await setFrozenProgress(storyIdStr, {
-      totalComments: stats.totalComments,
-      readCount: stats.readCount,
-      percent: stats.percent,
+    await withLocalThreadMutation(async () => {
+      await setCachedStats({ storyId: storyIdStr, stats });
+      await setThreadStatus(storyIdStr, "archived");
+      await setFrozenProgress(storyIdStr, {
+        totalComments: stats.totalComments,
+        readCount: stats.readCount,
+        percent: stats.percent,
+      });
     });
 
-    thread = await getThread(storyIdStr);
-    updateMarkLabels();
-    renderToolbar();
+    await queueItemPageStateRefresh();
   }
 
   async function onUnarchive() {
     if (!thread) return;
-    await unarchiveThread(storyIdStr);
-    thread = await getThread(storyIdStr);
-    updateMarkLabels();
-    renderToolbar();
+    await withLocalThreadMutation(async () => {
+      await unarchiveThread(storyIdStr);
+    });
+    await queueItemPageStateRefresh();
   }
 
   function renderToolbar() {
     toolbar.replaceChildren();
 
     const saved = !!thread;
-    const lastRead = thread?.lastReadCommentId;
     const status = thread?.status ?? "active";
 
     const computedStats = saved
-      ? computeStats({
+      ? (liveThreadStats ??
+        computeStats({
           commentIds,
           readCommentIds: thread?.readCommentIds,
           newCount: thread?.cachedStats?.newCount,
           forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
-        })
+        }))
       : undefined;
     const progressForDisplay =
       status === "active" ? computedStats : (thread?.frozenProgress ?? computedStats);
-    const liveNewCount = saved ? (thread?.cachedStats?.newCount ?? 0) : 0;
+    const liveNewCount = saved ? (computedStats?.newCount ?? 0) : 0;
 
     const left = document.createElement("span");
     left.className = "hn-later-pill";
@@ -1613,68 +1688,50 @@ async function initItemPage(url: URL) {
   // Initialize toolbar immediately (before async new-count calc).
   renderToolbar();
 
-  // If saved, compute new comments + refresh cached stats + persist visit info.
+  // On item-page load, keep storage-derived stats in sync without turning focus/storage refreshes into
+  // write loops.
   if (thread) {
-    const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
+    await withLocalThreadMutation(async () => {
+      // Touch last-visited time, but DO NOT advance the "new comments" baseline on page load.
+      await setVisitInfo({ storyId: storyIdStr });
 
-    // Touch last-visited time, but DO NOT advance the "new comments" baseline on page load.
-    await setVisitInfo({ storyId: storyIdStr });
+      thread = await getThread(storyIdStr);
+      if (!thread) return;
 
-    // If this thread was saved without a baseline (eg, saved from listing page), initialize it once
-    // so "new" is tracked from the first item-page visit onward.
-    if (thread.maxSeenCommentId == null && currentMax != null) {
-      await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
+      if (shouldBootstrapSavedThread(thread, commentIds)) {
+        await bootstrapSavedThreadFromCurrentPage();
+        return;
+      }
 
-      clearNewHighlights(commentRows);
+      const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
+        lastReadCommentId: thread.lastReadCommentId,
+        dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
+        seenNewCommentIds: thread.seenNewCommentIds,
+      });
+      applyUnreadGutters(commentRows, thread.readCommentIds);
+      applyCheckpointChip(commentRows, thread.lastReadCommentId);
+
       const stats = computeStats({
         commentIds,
         readCommentIds: thread.readCommentIds,
-        newCount: 0,
+        newCount,
         forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
       });
       await setCachedStats({ storyId: storyIdStr, stats });
 
-      // Refresh local thread copy for UI labels.
-      thread = await getThread(storyIdStr);
-      if (thread) applyUnreadGutters(commentRows, thread.readCommentIds);
-      updateMarkLabels();
-      applyCheckpointChip(commentRows, thread?.lastReadCommentId);
-      renderToolbar();
-      return;
-    }
-
-    const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
-      lastReadCommentId: thread.lastReadCommentId,
-      dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
-      seenNewCommentIds: thread.seenNewCommentIds,
+      // If this thread is archived but missing a frozen snapshot (e.g. archived from popup before any
+      // stats were computed), initialize it once from the current progress.
+      if (thread.status === "archived" && thread.frozenProgress == null) {
+        await setFrozenProgress(storyIdStr, {
+          totalComments: stats.totalComments,
+          readCount: stats.readCount,
+          percent: stats.percent,
+        });
+      }
     });
-    applyUnreadGutters(commentRows, thread.readCommentIds);
-    applyCheckpointChip(commentRows, thread.lastReadCommentId);
-
-    const stats = computeStats({
-      commentIds,
-      readCommentIds: thread.readCommentIds,
-      newCount,
-      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
-    });
-    await setCachedStats({ storyId: storyIdStr, stats });
-
-    // If this thread is archived but missing a frozen snapshot (e.g. archived from popup before any
-    // stats were computed), initialize it once from the current progress.
-    if (thread.status === "archived" && thread.frozenProgress == null) {
-      await setFrozenProgress(storyIdStr, {
-        totalComments: stats.totalComments,
-        readCount: stats.readCount,
-        percent: stats.percent,
-      });
-    }
-
-    // Refresh local thread copy for UI labels.
-    thread = await getThread(storyIdStr);
-    updateMarkLabels();
-    applyCheckpointChip(commentRows, thread?.lastReadCommentId);
-    renderToolbar();
   }
+
+  await queueItemPageStateRefresh({ allowBootstrap: true });
 }
 
 export default defineContentScript({

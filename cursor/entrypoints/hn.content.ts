@@ -18,9 +18,10 @@ import {
   upsertThread,
   type ThreadRecord,
 } from "../utils/hnStorage";
-import { THREADS_BY_ID_KEY } from "../utils/hnLaterStorage";
 
+import { THREADS_BY_ID_KEY } from "../utils/hnLaterStorage";
 import { hnLaterMessenger } from "../utils/hnLaterMessaging";
+import { syncListingSaveLabels } from "../utils/listingSaveLabels";
 import { computeStats } from "../utils/threadStats";
 import { ensureBaselineMaxSeen } from "../utils/ensureBaseline";
 import { planSeenNewCommentUpdate } from "../utils/seenNewCommentUpdate";
@@ -557,39 +558,13 @@ function registerMessageListener() {
 async function initListingPage() {
   ensureStyles();
 
-  let savedIds = new Set((await listThreads()).map((t) => t.id));
+  const threads = await listThreads();
+  const savedIds = new Set(threads.map((t) => t.id));
+  const linkByStoryId = new Map<string, HTMLAnchorElement>();
 
-  async function refreshSavedStoryLinks() {
-    savedIds = new Set((await listThreads()).map((t) => t.id));
-
-    for (const link of Array.from(
-      document.querySelectorAll<HTMLAnchorElement>("a[data-hn-later-story-id]"),
-    )) {
-      const storyId = link.dataset.hnLaterStoryId;
-      if (!storyId) continue;
-      link.textContent = savedIds.has(storyId) ? "saved" : "later";
-    }
+  function renderListingSaveLabels() {
+    syncListingSaveLabels(linkByStoryId, savedIds);
   }
-
-  const onStorageChanged = (
-    changes: Record<string, Browser.storage.StorageChange>,
-    area: string,
-  ) => {
-    if (area !== "local") return;
-    if (!changes[THREADS_BY_ID_KEY]) return;
-    void refreshSavedStoryLinks();
-  };
-
-  browser.storage.onChanged.addListener(onStorageChanged);
-
-  const refreshIfVisible = () => {
-    if (document.visibilityState !== "visible") return;
-    void refreshSavedStoryLinks();
-  };
-
-  document.addEventListener("visibilitychange", refreshIfVisible);
-  window.addEventListener("focus", refreshIfVisible);
-  window.addEventListener("pageshow", refreshIfVisible);
 
   const storyRows = Array.from(document.querySelectorAll<HTMLTableRowElement>("tr.athing"));
   for (const row of storyRows) {
@@ -611,25 +586,45 @@ async function initListingPage() {
     link.href = "#";
     link.className = "hn-later-link";
     link.dataset.hnLaterStoryId = storyId;
-    link.textContent = savedIds.has(storyId) ? "saved" : "later";
+    linkByStoryId.set(storyId, link);
     link.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
 
       if (savedIds.has(storyId)) {
         await removeThread(storyId);
-        await refreshSavedStoryLinks();
+        savedIds.delete(storyId);
+        renderListingSaveLabels();
         return;
       }
 
       const hnPostedAt = getStoryPostedAtFromListingSubtext(subtextTd);
       await upsertThread({ id: storyId, title, url: itemUrl, hnPostedAt });
-      await refreshSavedStoryLinks();
+      savedIds.add(storyId);
+      renderListingSaveLabels();
     });
 
     subtextTd.appendChild(sep);
     subtextTd.appendChild(link);
   }
+
+  renderListingSaveLabels();
+
+  const listener = (changes: Record<string, Browser.storage.StorageChange>, area: string) => {
+    if (area !== "local") return;
+
+    const threadChange = changes[THREADS_BY_ID_KEY];
+    if (!threadChange) return;
+
+    const nextThreadsById = (threadChange.newValue ?? {}) as Record<string, unknown>;
+    savedIds.clear();
+    for (const storyId of Object.keys(nextThreadsById)) {
+      savedIds.add(storyId);
+    }
+    renderListingSaveLabels();
+  };
+
+  browser.storage.onChanged.addListener(listener);
 }
 
 async function initItemPage(url: URL) {

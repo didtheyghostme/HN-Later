@@ -1,3 +1,4 @@
+import { type GetDataType } from "@webext-core/messaging";
 import { defineBackground } from "wxt/utils/define-background";
 import { browser, type Browser } from "wxt/browser";
 
@@ -59,11 +60,12 @@ export default defineBackground(() => {
   }
 
   type ContentMessageType = keyof HnLaterContentProtocolMap;
+  type ContentMessageData<K extends ContentMessageType> = GetDataType<HnLaterContentProtocolMap[K]>;
 
   async function sendToTab<K extends ContentMessageType>(
     tabId: number,
     messageType: K,
-    data: Parameters<HnLaterContentProtocolMap[K]>[0],
+    data: ContentMessageData<K>,
   ): Promise<void> {
     // Retry a few times in case the content script isn’t ready yet.
     for (let i = 0; i < 15; i += 1) {

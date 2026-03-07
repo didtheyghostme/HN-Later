@@ -84,7 +84,7 @@ describe("didStoryThreadChange", () => {
     ).toBe(false);
   });
 
-  it("ignores cached-stats-only updates for the current story", () => {
+  it("detects cached-stats-only updates for the current story", () => {
     expect(
       didStoryThreadChange({
         storyId: "123",
@@ -99,7 +99,7 @@ describe("didStoryThreadChange", () => {
           }),
         },
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("detects progress updates for the current story", () => {
@@ -150,7 +150,7 @@ describe("didStoryThreadChange", () => {
 });
 
 describe("areRenderableThreadStatesEqual", () => {
-  it("compares only item-page render state", () => {
+  it("compares item-page render state including cached stats", () => {
     expect(
       areRenderableThreadStatesEqual(
         makeThread({
@@ -170,7 +170,7 @@ describe("areRenderableThreadStatesEqual", () => {
           cachedStats: { totalComments: 20, readCount: 8, percent: 40, newCount: 1 },
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 

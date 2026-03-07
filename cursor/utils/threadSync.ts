@@ -24,6 +24,15 @@ function frozenProgressEqual(
   );
 }
 
+function cachedStatsEqual(a: ThreadRecord["cachedStats"], b: ThreadRecord["cachedStats"]): boolean {
+  return (
+    a?.totalComments === b?.totalComments &&
+    a?.readCount === b?.readCount &&
+    a?.percent === b?.percent &&
+    a?.newCount === b?.newCount
+  );
+}
+
 export function areRenderableThreadStatesEqual(
   a: ThreadRecord | undefined,
   b: ThreadRecord | undefined,
@@ -38,6 +47,7 @@ export function areRenderableThreadStatesEqual(
     a.maxSeenCommentId === b.maxSeenCommentId &&
     arraysEqual(a.readCommentIds, b.readCommentIds) &&
     arraysEqual(a.seenNewCommentIds, b.seenNewCommentIds) &&
+    cachedStatsEqual(a.cachedStats, b.cachedStats) &&
     frozenProgressEqual(a.frozenProgress, b.frozenProgress)
   );
 }

@@ -12,8 +12,13 @@ export type HnLaterServiceOpenOptions = {
 
 export type HnLaterService = {
   open: (storyId: string, opts?: HnLaterServiceOpenOptions) => Promise<HnLaterServiceResult>;
+  bootstrapSummary: (
+    storyId: string,
+    opts?: HnLaterServiceOpenOptions,
+  ) => Promise<HnLaterServiceResult>;
   continue: (storyId: string, opts?: HnLaterServiceOpenOptions) => Promise<HnLaterServiceResult>;
   finish: (storyId: string, opts?: HnLaterServiceOpenOptions) => Promise<HnLaterServiceResult>;
+  archive: (storyId: string, opts?: HnLaterServiceOpenOptions) => Promise<HnLaterServiceResult>;
   openComment: (
     storyId: string,
     commentId: number,
@@ -25,5 +30,3 @@ export const [registerHnLaterService, getHnLaterService] = defineProxyService(
   "hnLater",
   (impl: HnLaterService) => impl,
 );
-
-

@@ -11,17 +11,22 @@ import {
 import { hnLaterMessenger, type HnLaterContentProtocolMap } from "../utils/hnLaterMessaging";
 
 export default defineBackground(() => {
+  const BOOTSTRAP_SUMMARY_HASH = "#hn-later-bootstrap-summary";
+
+  async function findExistingItemTab(storyId: string): Promise<Browser.tabs.Tab | undefined> {
+    const tabs = await browser.tabs.query({
+      url: [`*://news.ycombinator.com/item?id=${storyId}*`],
+    });
+
+    return tabs.find((tab) => tab.id != null);
+  }
+
   async function openOrFocusItemTab(
     storyId: string,
     { activate = true }: HnLaterServiceOpenOptions = {},
   ): Promise<Browser.tabs.Tab> {
     const targetUrl = `https://news.ycombinator.com/item?id=${encodeURIComponent(storyId)}`;
-
-    const tabs = await browser.tabs.query({
-      url: [`*://news.ycombinator.com/item?id=${storyId}*`],
-    });
-
-    const existing = tabs.find((t) => t.id != null);
+    const existing = await findExistingItemTab(storyId);
     if (existing?.id != null) {
       if (activate) {
         if (existing.windowId != null) {
@@ -80,6 +85,11 @@ export default defineBackground(() => {
     await hnLaterMessenger.sendMessage(messageType, data, tabId);
   }
 
+  async function bootstrapSummaryInTab(tabId: number, storyId: string): Promise<void> {
+    await waitForTabComplete(tabId);
+    await sendToTab(tabId, "hnLater/content/bootstrapSummary", { storyId });
+  }
+
   const serviceImpl: HnLaterService = {
     async open(storyId: string, opts?: HnLaterServiceOpenOptions): Promise<HnLaterServiceResult> {
       try {
@@ -87,6 +97,37 @@ export default defineBackground(() => {
         return { ok: true, tabId: tab.id };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    async bootstrapSummary(
+      storyId: string,
+      _opts?: HnLaterServiceOpenOptions,
+    ): Promise<HnLaterServiceResult> {
+      let createdTabId: number | undefined;
+      try {
+        const existing = await findExistingItemTab(storyId);
+        if (existing?.id != null) {
+          await bootstrapSummaryInTab(existing.id, storyId);
+          return { ok: true, tabId: existing.id };
+        }
+
+        const targetUrl = `https://news.ycombinator.com/item?id=${encodeURIComponent(storyId)}${BOOTSTRAP_SUMMARY_HASH}`;
+        const created = await browser.tabs.create({ url: targetUrl, active: false });
+        if (created.id == null) throw new Error("Failed to open tab");
+
+        createdTabId = created.id;
+        await bootstrapSummaryInTab(created.id, storyId);
+        return { ok: true, tabId: created.id };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      } finally {
+        if (createdTabId != null) {
+          try {
+            await browser.tabs.remove(createdTabId);
+          } catch {
+            // Ignore failures when the temporary tab is already gone.
+          }
+        }
       }
     },
     async continue(
@@ -109,6 +150,20 @@ export default defineBackground(() => {
         if (tab.id == null) throw new Error("Failed to open tab");
         await waitForTabComplete(tab.id);
         await sendToTab(tab.id, "hnLater/content/finish", { storyId });
+        return { ok: true, tabId: tab.id };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    async archive(
+      storyId: string,
+      opts?: HnLaterServiceOpenOptions,
+    ): Promise<HnLaterServiceResult> {
+      try {
+        const tab = await openOrFocusItemTab(storyId, opts);
+        if (tab.id == null) throw new Error("Failed to open tab");
+        await waitForTabComplete(tab.id);
+        await sendToTab(tab.id, "hnLater/content/archive", { storyId });
         return { ok: true, tabId: tab.id };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };

@@ -22,10 +22,13 @@ import {
 import { THREADS_BY_ID_KEY } from "../utils/hnLaterStorage";
 
 import { hnLaterMessenger } from "../utils/hnLaterMessaging";
+import { getHnLaterService } from "../utils/hnLaterService";
 import { computeStats } from "../utils/threadStats";
 import { ensureBaselineMaxSeen } from "../utils/ensureBaseline";
 import { planSeenNewCommentUpdate } from "../utils/seenNewCommentUpdate";
 import { didStoryThreadChange, shouldBootstrapSavedThread } from "../utils/threadSync";
+import { getHnItemPageBehavior } from "../utils/hnItemPageBehavior";
+import { applyStoredStorySummaryDelta } from "../utils/storySummaryDelta";
 import {
   resolveHnItemPageContext,
   type HnItemPageLink,
@@ -39,6 +42,8 @@ import {
 } from "../utils/hnCommentStars";
 
 const ITEM_BASE_URL = "https://news.ycombinator.com/item?id=";
+const BOOTSTRAP_SUMMARY_HASH = "#hn-later-bootstrap-summary";
+const hnLaterService = getHnLaterService();
 
 function isItemPage(url: URL) {
   return url.pathname === "/item" && !!url.searchParams.get("id");
@@ -51,6 +56,10 @@ function getRouteItemIdFromItemUrl(url: URL): string | undefined {
 
 function getItemUrl(storyId: string) {
   return `${ITEM_BASE_URL}${encodeURIComponent(storyId)}`;
+}
+
+function isBootstrapSummaryItemPage(url: URL) {
+  return url.hash === BOOTSTRAP_SUMMARY_HASH;
 }
 
 function getTitleLineTitleFromItemDom(): string | undefined {
@@ -508,6 +517,8 @@ function mountToolbarInCommentTree(toolbar: HTMLElement) {
 let currentNewIdx: number | undefined;
 
 let finishActiveThread: (() => Promise<void>) | undefined;
+let archiveActiveThread: (() => Promise<void>) | undefined;
+let bootstrapActiveThreadSummary: (() => Promise<void>) | undefined;
 
 let messageListenerRegistered = false;
 function registerMessageListener() {
@@ -560,6 +571,25 @@ function registerMessageListener() {
     return { ok: true };
   });
 
+  hnLaterMessenger.onMessage("hnLater/content/bootstrapSummary", async ({ data }) => {
+    const url = new URL(window.location.href);
+    if (!isItemPage(url)) return { ok: true };
+
+    const currentStoryId = getItemPageContextFromDom(url).storyId;
+    if (!currentStoryId || currentStoryId !== data.storyId) return { ok: true };
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (bootstrapActiveThreadSummary) {
+        await bootstrapActiveThreadSummary();
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    return { ok: true };
+  });
+
   hnLaterMessenger.onMessage("hnLater/content/finish", async ({ data }) => {
     const url = new URL(window.location.href);
     if (!isItemPage(url)) return { ok: true };
@@ -569,6 +599,20 @@ function registerMessageListener() {
 
     if (finishActiveThread) {
       await finishActiveThread();
+    }
+
+    return { ok: true };
+  });
+
+  hnLaterMessenger.onMessage("hnLater/content/archive", async ({ data }) => {
+    const url = new URL(window.location.href);
+    if (!isItemPage(url)) return { ok: true };
+
+    const currentStoryId = getItemPageContextFromDom(url).storyId;
+    if (!currentStoryId || currentStoryId !== data.storyId) return { ok: true };
+
+    if (archiveActiveThread) {
+      await archiveActiveThread();
     }
 
     return { ok: true };
@@ -659,10 +703,16 @@ async function initItemPage(url: URL) {
   const itemPageContext = getItemPageContextFromDom(url);
   const storyId = itemPageContext.storyId;
   if (!storyId) return;
+  const isBootstrapSummaryPage = isBootstrapSummaryItemPage(url);
 
   // Snapshot as definite string for use in closures (TS doesn't carry narrowing into callbacks)
   const storyIdStr: string = storyId;
-  const isCanonicalStoryPage = itemPageContext.routeItemId === storyIdStr;
+  const itemPageBehavior = getHnItemPageBehavior(itemPageContext);
+  const isCanonicalStoryPage = itemPageBehavior.isCanonicalStoryPage;
+  const allowBootstrapFromCurrentPage = itemPageBehavior.allowsBootstrapFromCurrentPage;
+  const allowSummaryRecomputeFromCurrentPage =
+    itemPageBehavior.allowsSummaryRecomputeFromCurrentPage;
+  const allowSummaryDeltaPersistence = itemPageBehavior.allowsSummaryDeltaPersistence;
 
   const itemUrl = getItemUrl(storyIdStr);
   const title = itemPageContext.title;
@@ -706,6 +756,27 @@ async function initItemPage(url: URL) {
   let liveThreadStats: ThreadStats | undefined;
   let localThreadMutationCount = 0;
   let refreshItemPageStatePromise = Promise.resolve();
+  let storySummaryBootstrapPromise: Promise<void> | undefined;
+  let isSyncingStorySummary = false;
+
+  async function runCanonicalThreadAction(action: "continue" | "finish" | "archive") {
+    const result =
+      action === "continue"
+        ? await hnLaterService.continue(storyIdStr)
+        : action === "finish"
+          ? await hnLaterService.finish(storyIdStr)
+          : await hnLaterService.archive(storyIdStr);
+
+    if (result.ok) return;
+
+    const fallbackMessage =
+      action === "continue"
+        ? "Failed to open the root story"
+        : action === "finish"
+          ? "Failed to finish the root story"
+          : "Failed to archive the root story";
+    window.alert(result.error ?? fallbackMessage);
+  }
 
   async function withLocalThreadMutation<T>(run: () => Promise<T>): Promise<T> {
     localThreadMutationCount += 1;
@@ -714,6 +785,33 @@ async function initItemPage(url: URL) {
     } finally {
       localThreadMutationCount -= 1;
     }
+  }
+
+  function getStoredStorySummary(threadRecord: ThreadRecord | undefined): ThreadStats | undefined {
+    if (threadRecord?.cachedStats) return threadRecord.cachedStats;
+    if (!threadRecord?.frozenProgress) return undefined;
+
+    return {
+      totalComments: threadRecord.frozenProgress.totalComments,
+      readCount: threadRecord.frozenProgress.readCount,
+      percent: threadRecord.frozenProgress.percent,
+      newCount: 0,
+    };
+  }
+
+  function getVisibleThreadStats(threadRecord: ThreadRecord | undefined): ThreadStats {
+    return computeStats({
+      commentIds,
+      readCommentIds: threadRecord?.readCommentIds,
+      newCount: getNewRows().length,
+      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+    });
+  }
+
+  function getVisibleNewCommentIds(): number[] {
+    return getNewRows()
+      .map((row) => Number(row.id))
+      .filter((id) => Number.isSafeInteger(id) && id > 0);
   }
 
   function applyThreadUiState() {
@@ -736,18 +834,21 @@ async function initItemPage(url: URL) {
     applyUnreadGutters(commentRows, thread.readCommentIds);
     applyCheckpointChip(commentRows, thread.lastReadCommentId);
 
-    liveThreadStats = computeStats({
-      commentIds,
-      readCommentIds: thread.readCommentIds,
-      newCount,
-      forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
-    });
+    liveThreadStats = allowSummaryRecomputeFromCurrentPage
+      ? computeStats({
+          commentIds,
+          readCommentIds: thread.readCommentIds,
+          newCount,
+          forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+        })
+      : undefined;
 
     updateMarkLabels();
     renderToolbar();
   }
 
   async function bootstrapSavedThreadFromCurrentPage() {
+    if (!allowBootstrapFromCurrentPage) return;
     if (!shouldBootstrapSavedThread(thread, commentIds)) return;
 
     const currentMax = Math.max(...commentIds);
@@ -766,10 +867,152 @@ async function initItemPage(url: URL) {
     thread = await getThread(storyIdStr);
   }
 
+  async function syncThreadSummaryFromCurrentPage(options: {
+    touchVisit: boolean;
+    allowBootstrap: boolean;
+  }) {
+    if (!thread) return;
+
+    await withLocalThreadMutation(async () => {
+      if (options.touchVisit) {
+        await setVisitInfo({ storyId: storyIdStr });
+      }
+
+      thread = await getThread(storyIdStr);
+      if (!thread) return;
+
+      if (options.allowBootstrap && allowBootstrapFromCurrentPage && shouldBootstrapSavedThread(thread, commentIds)) {
+        await bootstrapSavedThreadFromCurrentPage();
+        return;
+      }
+
+      if (!allowSummaryRecomputeFromCurrentPage) return;
+
+      const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
+        lastReadCommentId: thread.lastReadCommentId,
+        dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
+        seenNewCommentIds: thread.seenNewCommentIds,
+      });
+      applyUnreadGutters(commentRows, thread.readCommentIds);
+      applyCheckpointChip(commentRows, thread.lastReadCommentId);
+
+      const stats = computeStats({
+        commentIds,
+        readCommentIds: thread.readCommentIds,
+        newCount,
+        forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+      });
+      await setCachedStats({ storyId: storyIdStr, stats });
+
+      if (thread.status === "archived" && thread.frozenProgress == null) {
+        await setFrozenProgress(storyIdStr, {
+          totalComments: stats.totalComments,
+          readCount: stats.readCount,
+          percent: stats.percent,
+        });
+      }
+    });
+
+    thread = await getThread(storyIdStr);
+  }
+
+  async function bootstrapStorySummaryFromCanonical() {
+    if (!thread) return;
+    if (allowSummaryRecomputeFromCurrentPage) {
+      await syncThreadSummaryFromCurrentPage({ touchVisit: false, allowBootstrap: true });
+      return;
+    }
+    if (getStoredStorySummary(thread)) return;
+
+    if (!storySummaryBootstrapPromise) {
+      isSyncingStorySummary = true;
+      renderToolbar();
+      storySummaryBootstrapPromise = (async () => {
+        const result = await hnLaterService.bootstrapSummary(storyIdStr, { activate: false });
+        if (!result.ok) {
+          console.warn(
+            `[HN Later] Failed to bootstrap story summary for ${storyIdStr}: ${result.error}`,
+          );
+        }
+      })().finally(() => {
+        isSyncingStorySummary = false;
+        storySummaryBootstrapPromise = undefined;
+      });
+    }
+
+    await storySummaryBootstrapPromise;
+    thread = await getThread(storyIdStr);
+    renderToolbar();
+  }
+
+  async function ensureStorySummaryAvailableForProgressMutation() {
+    if (!thread) return;
+    if (getStoredStorySummary(thread)) return;
+    await bootstrapStorySummaryFromCanonical();
+    thread = await getThread(storyIdStr);
+  }
+
+  async function persistStorySummaryAfterVisibleProgressAction(
+    previousVisibleStats: ThreadStats,
+    nextVisibleStats: ThreadStats,
+  ) {
+    if (!thread || !allowSummaryDeltaPersistence) return;
+
+    if (allowSummaryRecomputeFromCurrentPage) {
+      await setCachedStats({ storyId: storyIdStr, stats: nextVisibleStats });
+
+      if (thread.status === "archived") {
+        await setFrozenProgress(storyIdStr, {
+          totalComments: nextVisibleStats.totalComments,
+          readCount: nextVisibleStats.readCount,
+          percent: nextVisibleStats.percent,
+        });
+      }
+
+      if (thread.status === "finished" && (nextVisibleStats.newCount ?? 0) === 0) {
+        await setFrozenProgress(storyIdStr, {
+          totalComments: nextVisibleStats.totalComments,
+          readCount: nextVisibleStats.totalComments,
+          percent: nextVisibleStats.totalComments === 0 ? 0 : 100,
+        });
+      }
+
+      thread = await getThread(storyIdStr);
+      return;
+    }
+
+    const { cachedStats, frozenProgress } = applyStoredStorySummaryDelta({
+      storedStats: getStoredStorySummary(thread),
+      previousVisibleStats,
+      nextVisibleStats,
+      status: thread.status,
+      frozenProgress: thread.frozenProgress,
+    });
+
+    if (!cachedStats) return;
+
+    await setCachedStats({ storyId: storyIdStr, stats: cachedStats });
+
+    const shouldWriteFrozenProgress =
+      frozenProgress?.totalComments !== thread.frozenProgress?.totalComments ||
+      frozenProgress?.readCount !== thread.frozenProgress?.readCount ||
+      frozenProgress?.percent !== thread.frozenProgress?.percent;
+
+    if (shouldWriteFrozenProgress || (thread.frozenProgress && frozenProgress == null)) {
+      await setFrozenProgress(storyIdStr, frozenProgress);
+    }
+
+    thread = {
+      ...thread,
+      cachedStats,
+      frozenProgress,
+    };
+  }
+
   async function refreshItemPageState(options: { allowBootstrap?: boolean } = {}) {
     thread = await getThread(storyIdStr);
 
-    if (options.allowBootstrap) {
+    if (options.allowBootstrap && allowBootstrapFromCurrentPage) {
       await bootstrapSavedThreadFromCurrentPage();
     }
 
@@ -784,7 +1027,7 @@ async function initItemPage(url: URL) {
   }
 
   async function syncItemPageStateForAction() {
-    await queueItemPageStateRefresh({ allowBootstrap: true });
+    await queueItemPageStateRefresh({ allowBootstrap: allowBootstrapFromCurrentPage });
   }
 
   const onItemThreadStorageChanged = (
@@ -806,7 +1049,7 @@ async function initItemPage(url: URL) {
       return;
     }
 
-    void queueItemPageStateRefresh({ allowBootstrap: true });
+    void queueItemPageStateRefresh({ allowBootstrap: allowBootstrapFromCurrentPage });
   };
 
   browser.storage.onChanged.addListener(onItemThreadStorageChanged);
@@ -814,7 +1057,7 @@ async function initItemPage(url: URL) {
   const refreshItemPageIfVisible = () => {
     if (localThreadMutationCount > 0) return;
     if (document.visibilityState !== "visible") return;
-    void queueItemPageStateRefresh({ allowBootstrap: true });
+    void queueItemPageStateRefresh({ allowBootstrap: allowBootstrapFromCurrentPage });
   };
 
   document.addEventListener("visibilitychange", refreshItemPageIfVisible);
@@ -1112,6 +1355,7 @@ async function initItemPage(url: URL) {
     if (!options.assumeFresh) {
       await syncItemPageStateForAction();
     }
+    const previousVisibleStats = getVisibleThreadStats(thread);
 
     // "Seen" should behave like "mark-to-here" for reading progress: advance the checkpoint to at least
     // this row in DOM order (never move backwards).
@@ -1126,12 +1370,16 @@ async function initItemPage(url: URL) {
     await withLocalThreadMutation(async () => {
       // Ensure thread exists, then record acknowledgements.
       thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
-      thread = await ensureBaselineMaxSeen({
-        thread,
-        storyId: storyIdStr,
-        commentIds,
-        setVisitInfo,
-      });
+      if (allowBootstrapFromCurrentPage) {
+        thread = await ensureBaselineMaxSeen({
+          thread,
+          storyId: storyIdStr,
+          commentIds,
+          setVisitInfo,
+        });
+      }
+      if (!thread) return;
+      await ensureStorySummaryAvailableForProgressMutation();
       if (!thread) return;
 
       // Persist the advanced checkpoint (never move backwards).
@@ -1165,7 +1413,12 @@ async function initItemPage(url: URL) {
 
       // Auto-cleanup: if there are no remaining new comments, graduate the baseline to current max.
       const maxSeen = thread?.maxSeenCommentId;
-      if (maxSeen != null && newCount === 0 && commentIds.length) {
+      if (
+        allowSummaryRecomputeFromCurrentPage &&
+        maxSeen != null &&
+        newCount === 0 &&
+        commentIds.length
+      ) {
         const currentMax = Math.max(...commentIds);
         if (currentMax > maxSeen) {
           await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
@@ -1173,34 +1426,13 @@ async function initItemPage(url: URL) {
         }
       }
 
-      const stats = computeStats({
+      const nextVisibleStats = computeStats({
         commentIds,
         readCommentIds: thread?.readCommentIds,
         newCount,
         forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
       });
-      await setCachedStats({ storyId: storyIdStr, stats });
-
-      // Archived threads freeze progress for display; explicit progress actions should update the
-      // frozen snapshot to match the new state (while still preventing passive backsliding).
-      if (thread?.status === "archived") {
-        await setFrozenProgress(storyIdStr, {
-          totalComments: stats.totalComments,
-          readCount: stats.readCount,
-          percent: stats.percent,
-        });
-      }
-
-      // Finished threads keep a frozen 100% snapshot; if there are no remaining new comments, roll it
-      // forward to the latest totals (still 100%).
-      if (thread?.status === "finished" && newCount === 0) {
-        const total = commentIds.length;
-        await setFrozenProgress(storyIdStr, {
-          totalComments: total,
-          readCount: total,
-          percent: total === 0 ? 0 : 100,
-        });
-      }
+      await persistStorySummaryAfterVisibleProgressAction(previousVisibleStats, nextVisibleStats);
     });
 
     await queueItemPageStateRefresh();
@@ -1211,16 +1443,21 @@ async function initItemPage(url: URL) {
     if (!options.assumeFresh) {
       await syncItemPageStateForAction();
     }
+    const previousVisibleStats = getVisibleThreadStats(thread);
 
     await withLocalThreadMutation(async () => {
       // Marking progress implies you care about returning: auto-save the thread.
       thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
-      thread = await ensureBaselineMaxSeen({
-        thread,
-        storyId: storyIdStr,
-        commentIds,
-        setVisitInfo,
-      });
+      if (allowBootstrapFromCurrentPage) {
+        thread = await ensureBaselineMaxSeen({
+          thread,
+          storyId: storyIdStr,
+          commentIds,
+          setVisitInfo,
+        });
+      }
+      if (!thread) return;
+      await ensureStorySummaryAvailableForProgressMutation();
       if (!thread) return;
       await setLastReadCommentId(storyIdStr, commentId);
       thread = { ...thread, lastReadCommentId: commentId };
@@ -1248,27 +1485,13 @@ async function initItemPage(url: URL) {
       applyUnreadGutters(commentRows, thread.readCommentIds);
       applyCheckpointChip(commentRows, commentId);
 
-      const stats = computeStats({
+      const nextVisibleStats = computeStats({
         commentIds,
         readCommentIds: thread.readCommentIds,
         newCount,
         forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
       });
-      await setCachedStats({ storyId: storyIdStr, stats });
-      const nextThread: ThreadRecord = { ...thread, cachedStats: stats };
-
-      // Archived threads: update frozen snapshot on explicit progress changes (mark-to-here).
-      if (thread.status === "archived") {
-        const frozen = {
-          totalComments: stats.totalComments,
-          readCount: stats.readCount,
-          percent: stats.percent,
-        };
-        await setFrozenProgress(storyIdStr, frozen);
-        thread = { ...nextThread, frozenProgress: frozen };
-      } else {
-        thread = nextThread;
-      }
+      await persistStorySummaryAfterVisibleProgressAction(previousVisibleStats, nextVisibleStats);
     });
 
     await queueItemPageStateRefresh();
@@ -1397,11 +1620,16 @@ async function initItemPage(url: URL) {
   }
 
   async function markUnreadAsSeen() {
+    if (!itemPageBehavior.allowsBulkMarkSeen) return;
     await syncItemPageStateForAction();
     if (!thread) return;
     if (commentIds.length === 0) return;
+    const previousVisibleStats = getVisibleThreadStats(thread);
+    const visibleNewCommentIds = getVisibleNewCommentIds();
 
     await withLocalThreadMutation(async () => {
+      if (!thread) return;
+      await ensureStorySummaryAvailableForProgressMutation();
       if (!thread) return;
 
       // Mark the LAST comment in DOM order as read so everything is marked as seen.
@@ -1417,12 +1645,17 @@ async function initItemPage(url: URL) {
       await setLastReadCommentId(storyIdStr, lastCommentId);
       thread = { ...thread, lastReadCommentId: lastCommentId };
 
-      await setReadCommentIds(storyIdStr, commentIds);
+      if (allowSummaryRecomputeFromCurrentPage) {
+        await setReadCommentIds(storyIdStr, commentIds);
 
-      // Also mark all new comments as seen
-      const maxSeenCommentId = Math.max(...commentIds);
-      await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: maxSeenCommentId });
-      await setDismissNewAboveUntilId(storyIdStr, undefined);
+        // Also mark all new comments as seen.
+        const maxSeenCommentId = Math.max(...commentIds);
+        await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: maxSeenCommentId });
+        await setDismissNewAboveUntilId(storyIdStr, undefined);
+      } else {
+        await addReadCommentIds(storyIdStr, commentIds);
+        await addSeenNewCommentIds(storyIdStr, visibleNewCommentIds);
+      }
 
       clearNewHighlights(commentRows);
       currentNewIdx = undefined;
@@ -1431,33 +1664,13 @@ async function initItemPage(url: URL) {
       applyUnreadGutters(commentRows, thread.readCommentIds);
       applyCheckpointChip(commentRows, lastCommentId);
 
-      const stats = computeStats({
+      const nextVisibleStats = computeStats({
         commentIds,
         readCommentIds: thread.readCommentIds,
         newCount: 0,
         forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
       });
-      await setCachedStats({ storyId: storyIdStr, stats });
-
-      // Archived threads: update frozen snapshot on explicit progress changes (✓ seen).
-      if (thread.status === "archived") {
-        await setFrozenProgress(storyIdStr, {
-          totalComments: stats.totalComments,
-          readCount: stats.readCount,
-          percent: stats.percent,
-        });
-      }
-
-      // If this is a Finished thread, rolling new back to 0 means we're caught up again; update the
-      // frozen snapshot to reflect the latest total (still 100%).
-      if (thread.status === "finished") {
-        const total = commentIds.length;
-        await setFrozenProgress(storyIdStr, {
-          totalComments: total,
-          readCount: total,
-          percent: total === 0 ? 0 : 100,
-        });
-      }
+      await persistStorySummaryAfterVisibleProgressAction(previousVisibleStats, nextVisibleStats);
     });
 
     await queueItemPageStateRefresh();
@@ -1524,7 +1737,9 @@ async function initItemPage(url: URL) {
     floatingNewNav.appendChild(prevBtn);
     floatingNewNav.appendChild(label);
     floatingNewNav.appendChild(nextBtn);
-    floatingNewNav.appendChild(seenBtn);
+    if (itemPageBehavior.allowsBulkMarkSeen) {
+      floatingNewNav.appendChild(seenBtn);
+    }
   }
 
   function findContinueTarget(
@@ -1549,6 +1764,11 @@ async function initItemPage(url: URL) {
       thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
       if (existingThread) return;
 
+      if (!allowBootstrapFromCurrentPage) {
+        await bootstrapStorySummaryFromCanonical();
+        return;
+      }
+
       // First time saving: establish baseline as "seen".
       const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
       await setVisitInfo({ storyId: storyIdStr, maxSeenCommentId: currentMax });
@@ -1562,21 +1782,26 @@ async function initItemPage(url: URL) {
       await setCachedStats({ storyId: storyIdStr, stats });
     });
 
-    await queueItemPageStateRefresh({ allowBootstrap: true });
+    await queueItemPageStateRefresh({ allowBootstrap: allowBootstrapFromCurrentPage });
   }
 
   async function onFinish() {
+    if (itemPageBehavior.routesGlobalThreadActionsToCanonical) {
+      await runCanonicalThreadAction("finish");
+      return;
+    }
+
     await syncItemPageStateForAction();
 
     if (!thread) {
       await onSaveToggle("save");
     }
     if (!thread) {
-      await queueItemPageStateRefresh({ allowBootstrap: true });
+      await queueItemPageStateRefresh({ allowBootstrap: allowBootstrapFromCurrentPage });
       return;
     }
     if (thread.status === "finished" || thread.status === "archived") {
-      await queueItemPageStateRefresh({ allowBootstrap: true });
+      await queueItemPageStateRefresh({ allowBootstrap: allowBootstrapFromCurrentPage });
       return;
     }
 
@@ -1607,17 +1832,22 @@ async function initItemPage(url: URL) {
   finishActiveThread = onFinish;
 
   async function onArchive() {
+    if (itemPageBehavior.routesGlobalThreadActionsToCanonical) {
+      await runCanonicalThreadAction("archive");
+      return;
+    }
+
     await syncItemPageStateForAction();
 
     if (!thread) {
       await onSaveToggle("save");
     }
     if (!thread) {
-      await queueItemPageStateRefresh({ allowBootstrap: true });
+      await queueItemPageStateRefresh({ allowBootstrap: allowBootstrapFromCurrentPage });
       return;
     }
     if ((thread.status ?? "active") !== "active") {
-      await queueItemPageStateRefresh({ allowBootstrap: true });
+      await queueItemPageStateRefresh({ allowBootstrap: allowBootstrapFromCurrentPage });
       return;
     }
 
@@ -1643,14 +1873,16 @@ async function initItemPage(url: URL) {
     await queueItemPageStateRefresh();
   }
 
+  archiveActiveThread = onArchive;
+
   async function onUnarchive() {
     await syncItemPageStateForAction();
     if (!thread) {
-      await queueItemPageStateRefresh({ allowBootstrap: true });
+      await queueItemPageStateRefresh({ allowBootstrap: allowBootstrapFromCurrentPage });
       return;
     }
     if (thread.status === "active") {
-      await queueItemPageStateRefresh({ allowBootstrap: true });
+      await queueItemPageStateRefresh({ allowBootstrap: allowBootstrapFromCurrentPage });
       return;
     }
     await withLocalThreadMutation(async () => {
@@ -1659,24 +1891,45 @@ async function initItemPage(url: URL) {
     await queueItemPageStateRefresh();
   }
 
+  bootstrapActiveThreadSummary = isCanonicalStoryPage
+    ? async () => {
+        thread = await getThread(storyIdStr);
+        await syncThreadSummaryFromCurrentPage({ touchVisit: false, allowBootstrap: true });
+        await queueItemPageStateRefresh({ allowBootstrap: false });
+      }
+    : undefined;
+
   function renderToolbar() {
     toolbar.replaceChildren();
 
     const saved = !!thread;
     const status = thread?.status ?? "active";
 
-    const computedStats = saved
-      ? (liveThreadStats ??
-        computeStats({
-          commentIds,
-          readCommentIds: thread?.readCommentIds,
-          newCount: thread?.cachedStats?.newCount,
-          forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
-        }))
+    const computedStats =
+      saved && allowSummaryRecomputeFromCurrentPage
+        ? (liveThreadStats ??
+          computeStats({
+            commentIds,
+            readCommentIds: thread?.readCommentIds,
+            newCount: thread?.cachedStats?.newCount,
+            forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
+          }))
+        : undefined;
+    const storedProgressForDisplay = saved
+      ? status === "active"
+        ? thread?.cachedStats
+        : (thread?.frozenProgress ?? thread?.cachedStats)
       : undefined;
-    const progressForDisplay =
-      status === "active" ? computedStats : (thread?.frozenProgress ?? computedStats);
-    const liveNewCount = saved ? (computedStats?.newCount ?? 0) : 0;
+    const progressForDisplay = allowSummaryRecomputeFromCurrentPage
+      ? status === "active"
+        ? computedStats
+        : (thread?.frozenProgress ?? computedStats)
+      : storedProgressForDisplay;
+    const liveNewCount = saved
+      ? allowSummaryRecomputeFromCurrentPage
+        ? (computedStats?.newCount ?? 0)
+        : (thread?.cachedStats?.newCount ?? 0)
+      : 0;
 
     const left = document.createElement("span");
     left.className = "hn-later-pill";
@@ -1685,11 +1938,17 @@ async function initItemPage(url: URL) {
     } else {
       const statusPrefix =
         status === "finished" ? "Finished · " : status === "archived" ? "Archived · " : "";
-      const base = `Progress: ${progressForDisplay?.readCount ?? 0}/${progressForDisplay?.totalComments ?? 0} (${progressForDisplay?.percent ?? 0}%)`;
-      left.textContent =
-        liveNewCount > 0
-          ? `${statusPrefix}${base} · ${liveNewCount} new`
-          : `${statusPrefix}${base}`;
+      if (!progressForDisplay) {
+        left.textContent = isSyncingStorySummary
+          ? `${statusPrefix}Progress unavailable — syncing story`
+          : `${statusPrefix}Progress unavailable`;
+      } else {
+        const base = `Progress: ${progressForDisplay.readCount}/${progressForDisplay.totalComments} (${progressForDisplay.percent}%)`;
+        left.textContent =
+          liveNewCount > 0
+            ? `${statusPrefix}${base} · ${liveNewCount} new`
+            : `${statusPrefix}${base}`;
+      }
     }
 
     const saveLink = document.createElement("a");
@@ -1705,9 +1964,13 @@ async function initItemPage(url: URL) {
     continueLink.href = "#";
     continueLink.textContent = "Continue";
     continueLink.style.opacity = saved ? "1" : "0.4";
-    continueLink.addEventListener("click", (e) => {
+    continueLink.addEventListener("click", async (e) => {
       e.preventDefault();
       if (!saved) return;
+      if (itemPageBehavior.routesGlobalThreadActionsToCanonical) {
+        await runCanonicalThreadAction("continue");
+        return;
+      }
       const target = findContinueTarget(thread?.lastReadCommentId);
       if (!target) return;
       scrollToRow(target);
@@ -1756,47 +2019,22 @@ async function initItemPage(url: URL) {
   // On item-page load, keep storage-derived stats in sync without turning focus/storage refreshes into
   // write loops.
   if (thread) {
-    await withLocalThreadMutation(async () => {
-      // Touch last-visited time, but DO NOT advance the "new comments" baseline on page load.
-      await setVisitInfo({ storyId: storyIdStr });
-
-      thread = await getThread(storyIdStr);
-      if (!thread) return;
-
-      if (shouldBootstrapSavedThread(thread, commentIds)) {
-        await bootstrapSavedThreadFromCurrentPage();
-        return;
-      }
-
-      const { newCount } = applyNewHighlights(commentRows, thread.maxSeenCommentId, {
-        lastReadCommentId: thread.lastReadCommentId,
-        dismissNewAboveUntilId: thread.dismissNewAboveUntilId,
-        seenNewCommentIds: thread.seenNewCommentIds,
-      });
-      applyUnreadGutters(commentRows, thread.readCommentIds);
-      applyCheckpointChip(commentRows, thread.lastReadCommentId);
-
-      const stats = computeStats({
-        commentIds,
-        readCommentIds: thread.readCommentIds,
-        newCount,
-        forcedUnreadCommentIds: getForcedUnreadCommentIdsForStats(),
-      });
-      await setCachedStats({ storyId: storyIdStr, stats });
-
-      // If this thread is archived but missing a frozen snapshot (e.g. archived from popup before any
-      // stats were computed), initialize it once from the current progress.
-      if (thread.status === "archived" && thread.frozenProgress == null) {
-        await setFrozenProgress(storyIdStr, {
-          totalComments: stats.totalComments,
-          readCount: stats.readCount,
-          percent: stats.percent,
-        });
-      }
+    await syncThreadSummaryFromCurrentPage({
+      touchVisit: !isBootstrapSummaryPage,
+      allowBootstrap: true,
     });
   }
 
-  await queueItemPageStateRefresh({ allowBootstrap: true });
+  await queueItemPageStateRefresh({ allowBootstrap: allowBootstrapFromCurrentPage });
+
+  if (
+    thread &&
+    !allowSummaryRecomputeFromCurrentPage &&
+    !isBootstrapSummaryPage &&
+    !getStoredStorySummary(thread)
+  ) {
+    void bootstrapStorySummaryFromCanonical();
+  }
 }
 
 export default defineContentScript({

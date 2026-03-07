@@ -1516,17 +1516,18 @@ async function initItemPage(url: URL) {
     return commentRows[idx] ?? undefined;
   }
 
-  async function onSaveToggle() {
-    await syncItemPageStateForAction();
-
+  async function onSaveToggle(intent: "save" | "unsave") {
     await withLocalThreadMutation(async () => {
-      if (thread) {
+      const existingThread = await getThread(storyIdStr);
+
+      if (intent === "unsave") {
         await removeThread(storyIdStr);
         thread = undefined;
         return;
       }
 
       thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
+      if (existingThread) return;
 
       // First time saving: establish baseline as "seen".
       const currentMax = commentIds.length ? Math.max(...commentIds) : undefined;
@@ -1547,8 +1548,17 @@ async function initItemPage(url: URL) {
   async function onFinish() {
     await syncItemPageStateForAction();
 
-    if (!thread) await onSaveToggle();
-    if (!thread) return;
+    if (!thread) {
+      await onSaveToggle("save");
+    }
+    if (!thread) {
+      await queueItemPageStateRefresh({ allowBootstrap: true });
+      return;
+    }
+    if (thread.status === "finished" || thread.status === "archived") {
+      await queueItemPageStateRefresh({ allowBootstrap: true });
+      return;
+    }
 
     const unreadCount = getUnreadRows().length;
     const newCount = getNewRows().length;
@@ -1579,8 +1589,17 @@ async function initItemPage(url: URL) {
   async function onArchive() {
     await syncItemPageStateForAction();
 
-    if (!thread) await onSaveToggle();
-    if (!thread) return;
+    if (!thread) {
+      await onSaveToggle("save");
+    }
+    if (!thread) {
+      await queueItemPageStateRefresh({ allowBootstrap: true });
+      return;
+    }
+    if ((thread.status ?? "active") !== "active") {
+      await queueItemPageStateRefresh({ allowBootstrap: true });
+      return;
+    }
 
     const stats =
       liveThreadStats ??
@@ -1606,8 +1625,14 @@ async function initItemPage(url: URL) {
 
   async function onUnarchive() {
     await syncItemPageStateForAction();
-    if (!thread) return;
-    if (thread.status === "active") return;
+    if (!thread) {
+      await queueItemPageStateRefresh({ allowBootstrap: true });
+      return;
+    }
+    if (thread.status === "active") {
+      await queueItemPageStateRefresh({ allowBootstrap: true });
+      return;
+    }
     await withLocalThreadMutation(async () => {
       await unarchiveThread(storyIdStr);
     });
@@ -1650,9 +1675,10 @@ async function initItemPage(url: URL) {
     const saveLink = document.createElement("a");
     saveLink.href = "#";
     saveLink.textContent = saved ? "Unsave" : "Save";
+    const saveIntent = saved ? "unsave" : "save";
     saveLink.addEventListener("click", async (e) => {
       e.preventDefault();
-      await onSaveToggle();
+      await onSaveToggle(saveIntent);
     });
 
     const continueLink = document.createElement("a");

@@ -27,6 +27,10 @@ import { ensureBaselineMaxSeen } from "../utils/ensureBaseline";
 import { planSeenNewCommentUpdate } from "../utils/seenNewCommentUpdate";
 import { didStoryThreadChange, shouldBootstrapSavedThread } from "../utils/threadSync";
 import {
+  resolveHnItemPageContext,
+  type HnItemPageLink,
+} from "../utils/hnItemPageContext";
+import {
   getStarredCommentsById,
   removeStarredComment,
   setStarredCommentNote,
@@ -40,7 +44,7 @@ function isItemPage(url: URL) {
   return url.pathname === "/item" && !!url.searchParams.get("id");
 }
 
-function getStoryIdFromItemUrl(url: URL): string | undefined {
+function getRouteItemIdFromItemUrl(url: URL): string | undefined {
   const id = url.searchParams.get("id");
   return id ?? undefined;
 }
@@ -49,14 +53,28 @@ function getItemUrl(storyId: string) {
   return `${ITEM_BASE_URL}${encodeURIComponent(storyId)}`;
 }
 
-function getItemTitleFromDom(): string {
-  const fromTitleLine = document
-    .querySelector<HTMLAnchorElement>("span.titleline a")
-    ?.textContent?.trim();
-  if (fromTitleLine) return fromTitleLine;
+function getTitleLineTitleFromItemDom(): string | undefined {
+  const s = document.querySelector<HTMLAnchorElement>("span.titleline a")?.textContent?.trim();
+  return s || undefined;
+}
 
-  const fromDocTitle = document.title.replace(/\s*\|\s*Hacker News\s*$/i, "").trim();
-  return fromDocTitle || "Hacker News";
+function getTopCommentItemLinksFromDom(): HnItemPageLink[] {
+  const comhead = document.querySelector<HTMLElement>("table.fatitem span.comhead");
+  if (!comhead) return [];
+
+  return Array.from(comhead.querySelectorAll<HTMLAnchorElement>("a")).map((link) => ({
+    href: link.getAttribute("href"),
+    text: link.textContent,
+  }));
+}
+
+function getItemPageContextFromDom(url: URL) {
+  return resolveHnItemPageContext({
+    routeItemId: getRouteItemIdFromItemUrl(url),
+    titleLineTitle: getTitleLineTitleFromItemDom(),
+    docTitle: document.title,
+    topCommentItemLinks: getTopCommentItemLinksFromDom(),
+  });
 }
 
 function parseHnTitleTimestampToMs(raw: string | null | undefined): number | undefined {
@@ -500,7 +518,7 @@ function registerMessageListener() {
     const url = new URL(window.location.href);
     if (!isItemPage(url)) return { ok: true };
 
-    const currentStoryId = getStoryIdFromItemUrl(url);
+    const currentStoryId = getItemPageContextFromDom(url).storyId;
     if (!currentStoryId || currentStoryId !== data.storyId) return { ok: true };
 
     const commentRows = getCommentRows();
@@ -523,7 +541,7 @@ function registerMessageListener() {
     const url = new URL(window.location.href);
     if (!isItemPage(url)) return { ok: true };
 
-    const currentStoryId = getStoryIdFromItemUrl(url);
+    const currentStoryId = getItemPageContextFromDom(url).storyId;
     if (!currentStoryId || currentStoryId !== data.storyId) return { ok: true };
 
     const el = document.getElementById(String(data.commentId));
@@ -546,7 +564,7 @@ function registerMessageListener() {
     const url = new URL(window.location.href);
     if (!isItemPage(url)) return { ok: true };
 
-    const currentStoryId = getStoryIdFromItemUrl(url);
+    const currentStoryId = getItemPageContextFromDom(url).storyId;
     if (!currentStoryId || currentStoryId !== data.storyId) return { ok: true };
 
     if (finishActiveThread) {
@@ -638,22 +656,24 @@ async function initListingPage() {
 async function initItemPage(url: URL) {
   ensureStyles();
 
-  const storyId = getStoryIdFromItemUrl(url);
+  const itemPageContext = getItemPageContextFromDom(url);
+  const storyId = itemPageContext.storyId;
   if (!storyId) return;
 
   // Snapshot as definite string for use in closures (TS doesn't carry narrowing into callbacks)
   const storyIdStr: string = storyId;
+  const isCanonicalStoryPage = itemPageContext.routeItemId === storyIdStr;
 
   const itemUrl = getItemUrl(storyIdStr);
-  const title = getItemTitleFromDom();
-  const hnPostedAt = getStoryPostedAtFromItemDom();
+  const title = itemPageContext.title;
+  const hnPostedAt = isCanonicalStoryPage ? getStoryPostedAtFromItemDom() : undefined;
 
   const commentRows = getCommentRows();
   const commentIds = getCommentIdsInDomOrder(commentRows);
   const firstCommentRow = commentRows[0];
 
   // Show an "OP" badge next to the submitter's username in comments.
-  const storyAuthor = getStoryAuthorFromItemDom();
+  const storyAuthor = isCanonicalStoryPage ? getStoryAuthorFromItemDom() : undefined;
   if (storyAuthor) {
     for (const row of commentRows) {
       const comhead = row.querySelector<HTMLElement>("span.comhead");

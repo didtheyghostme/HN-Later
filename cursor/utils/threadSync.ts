@@ -13,7 +13,18 @@ function arraysEqual(a: number[] | undefined, b: number[] | undefined): boolean 
   return true;
 }
 
-export function areThreadRecordsEqual(
+function frozenProgressEqual(
+  a: ThreadRecord["frozenProgress"],
+  b: ThreadRecord["frozenProgress"],
+): boolean {
+  return (
+    a?.totalComments === b?.totalComments &&
+    a?.readCount === b?.readCount &&
+    a?.percent === b?.percent
+  );
+}
+
+export function areRenderableThreadStatesEqual(
   a: ThreadRecord | undefined,
   b: ThreadRecord | undefined,
 ): boolean {
@@ -21,26 +32,13 @@ export function areThreadRecordsEqual(
   if (!a || !b) return a === b;
 
   return (
-    a.id === b.id &&
-    a.title === b.title &&
-    a.url === b.url &&
-    a.addedAt === b.addedAt &&
-    a.hnPostedAt === b.hnPostedAt &&
-    a.lastVisitedAt === b.lastVisitedAt &&
     a.status === b.status &&
-    a.statusChangedAt === b.statusChangedAt &&
     a.lastReadCommentId === b.lastReadCommentId &&
     a.dismissNewAboveUntilId === b.dismissNewAboveUntilId &&
     a.maxSeenCommentId === b.maxSeenCommentId &&
     arraysEqual(a.readCommentIds, b.readCommentIds) &&
     arraysEqual(a.seenNewCommentIds, b.seenNewCommentIds) &&
-    a.cachedStats?.totalComments === b.cachedStats?.totalComments &&
-    a.cachedStats?.readCount === b.cachedStats?.readCount &&
-    a.cachedStats?.percent === b.cachedStats?.percent &&
-    a.cachedStats?.newCount === b.cachedStats?.newCount &&
-    a.frozenProgress?.totalComments === b.frozenProgress?.totalComments &&
-    a.frozenProgress?.readCount === b.frozenProgress?.readCount &&
-    a.frozenProgress?.percent === b.frozenProgress?.percent
+    frozenProgressEqual(a.frozenProgress, b.frozenProgress)
   );
 }
 
@@ -49,7 +47,7 @@ export function didStoryThreadChange(input: {
   oldThreadsById: Record<string, ThreadRecord> | null | undefined;
   newThreadsById: Record<string, ThreadRecord> | null | undefined;
 }): boolean {
-  return !areThreadRecordsEqual(
+  return !areRenderableThreadStatesEqual(
     input.oldThreadsById?.[input.storyId],
     input.newThreadsById?.[input.storyId],
   );

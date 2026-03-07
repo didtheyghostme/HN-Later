@@ -763,6 +763,10 @@ async function initItemPage(url: URL) {
     return refreshItemPageStatePromise;
   }
 
+  async function syncItemPageStateForAction() {
+    await queueItemPageStateRefresh({ allowBootstrap: true });
+  }
+
   const onItemThreadStorageChanged = (
     changes: Record<string, Browser.storage.StorageChange>,
     area: string,
@@ -1084,7 +1088,11 @@ async function initItemPage(url: URL) {
   }
 
   // Handler for "seen" click on NEW comments - acknowledges a range of new comments up to this one.
-  async function handleSeenNewComment(commentId: number) {
+  async function handleSeenNewComment(commentId: number, options: { assumeFresh?: boolean } = {}) {
+    if (!options.assumeFresh) {
+      await syncItemPageStateForAction();
+    }
+
     // "Seen" should behave like "mark-to-here" for reading progress: advance the checkpoint to at least
     // this row in DOM order (never move backwards).
     const plan = planSeenNewCommentUpdate({
@@ -1179,7 +1187,11 @@ async function initItemPage(url: URL) {
   }
 
   // Handler for "mark-to-here" click on OLD comments
-  async function handleMarkToHere(commentId: number) {
+  async function handleMarkToHere(commentId: number, options: { assumeFresh?: boolean } = {}) {
+    if (!options.assumeFresh) {
+      await syncItemPageStateForAction();
+    }
+
     await withLocalThreadMutation(async () => {
       // Marking progress implies you care about returning: auto-save the thread.
       thread = await upsertThread({ id: storyIdStr, title, url: itemUrl, hnPostedAt });
@@ -1281,15 +1293,17 @@ async function initItemPage(url: URL) {
         e.preventDefault();
         e.stopPropagation();
 
+        await syncItemPageStateForAction();
+
         // Check current state (may have changed since page load)
         const currentlyNew = isNewComment(commentId);
 
         if (currentlyNew) {
           // NEW comment: acknowledge THIS specific new comment
-          await handleSeenNewComment(commentId);
+          await handleSeenNewComment(commentId, { assumeFresh: true });
         } else {
           // OLD comment: mark reading progress to here
-          await handleMarkToHere(commentId);
+          await handleMarkToHere(commentId, { assumeFresh: true });
         }
       });
 
@@ -1363,10 +1377,13 @@ async function initItemPage(url: URL) {
   }
 
   async function markUnreadAsSeen() {
+    await syncItemPageStateForAction();
     if (!thread) return;
     if (commentIds.length === 0) return;
 
     await withLocalThreadMutation(async () => {
+      if (!thread) return;
+
       // Mark the LAST comment in DOM order as read so everything is marked as seen.
       // IMPORTANT:
       // - Reading progress ("unread") is read-set based (see applyUnreadGutters).
@@ -1500,6 +1517,8 @@ async function initItemPage(url: URL) {
   }
 
   async function onSaveToggle() {
+    await syncItemPageStateForAction();
+
     await withLocalThreadMutation(async () => {
       if (thread) {
         await removeThread(storyIdStr);
@@ -1526,10 +1545,9 @@ async function initItemPage(url: URL) {
   }
 
   async function onFinish() {
-    if (!thread) await onSaveToggle();
-    if (!thread) return;
+    await syncItemPageStateForAction();
 
-    await queueItemPageStateRefresh({ allowBootstrap: true });
+    if (!thread) await onSaveToggle();
     if (!thread) return;
 
     const unreadCount = getUnreadRows().length;
@@ -1559,10 +1577,9 @@ async function initItemPage(url: URL) {
   finishActiveThread = onFinish;
 
   async function onArchive() {
-    if (!thread) await onSaveToggle();
-    if (!thread) return;
+    await syncItemPageStateForAction();
 
-    await queueItemPageStateRefresh({ allowBootstrap: true });
+    if (!thread) await onSaveToggle();
     if (!thread) return;
 
     const stats =
@@ -1588,7 +1605,9 @@ async function initItemPage(url: URL) {
   }
 
   async function onUnarchive() {
+    await syncItemPageStateForAction();
     if (!thread) return;
+    if (thread.status === "active") return;
     await withLocalThreadMutation(async () => {
       await unarchiveThread(storyIdStr);
     });

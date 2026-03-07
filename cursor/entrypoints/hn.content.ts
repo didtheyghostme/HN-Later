@@ -1,3 +1,4 @@
+import { browser, type Browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
 
 import {
@@ -17,6 +18,7 @@ import {
   upsertThread,
   type ThreadRecord,
 } from "../utils/hnStorage";
+import { THREADS_BY_ID_KEY } from "../utils/hnLaterStorage";
 
 import { hnLaterMessenger } from "../utils/hnLaterMessaging";
 import { computeStats } from "../utils/threadStats";
@@ -555,8 +557,39 @@ function registerMessageListener() {
 async function initListingPage() {
   ensureStyles();
 
-  const threads = await listThreads();
-  const savedIds = new Set(threads.map((t) => t.id));
+  let savedIds = new Set((await listThreads()).map((t) => t.id));
+
+  async function refreshSavedStoryLinks() {
+    savedIds = new Set((await listThreads()).map((t) => t.id));
+
+    for (const link of Array.from(
+      document.querySelectorAll<HTMLAnchorElement>("a[data-hn-later-story-id]"),
+    )) {
+      const storyId = link.dataset.hnLaterStoryId;
+      if (!storyId) continue;
+      link.textContent = savedIds.has(storyId) ? "saved" : "later";
+    }
+  }
+
+  const onStorageChanged = (
+    changes: Record<string, Browser.storage.StorageChange>,
+    area: string,
+  ) => {
+    if (area !== "local") return;
+    if (!changes[THREADS_BY_ID_KEY]) return;
+    void refreshSavedStoryLinks();
+  };
+
+  browser.storage.onChanged.addListener(onStorageChanged);
+
+  const refreshIfVisible = () => {
+    if (document.visibilityState !== "visible") return;
+    void refreshSavedStoryLinks();
+  };
+
+  document.addEventListener("visibilitychange", refreshIfVisible);
+  window.addEventListener("focus", refreshIfVisible);
+  window.addEventListener("pageshow", refreshIfVisible);
 
   const storyRows = Array.from(document.querySelectorAll<HTMLTableRowElement>("tr.athing"));
   for (const row of storyRows) {
@@ -585,15 +618,13 @@ async function initListingPage() {
 
       if (savedIds.has(storyId)) {
         await removeThread(storyId);
-        savedIds.delete(storyId);
-        link.textContent = "later";
+        await refreshSavedStoryLinks();
         return;
       }
 
       const hnPostedAt = getStoryPostedAtFromListingSubtext(subtextTd);
       await upsertThread({ id: storyId, title, url: itemUrl, hnPostedAt });
-      savedIds.add(storyId);
-      link.textContent = "saved";
+      await refreshSavedStoryLinks();
     });
 
     subtextTd.appendChild(sep);

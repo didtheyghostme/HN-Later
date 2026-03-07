@@ -18,6 +18,8 @@ import {
   upsertThread,
   type ThreadRecord,
 } from "../utils/hnStorage";
+import { THREADS_BY_ID_KEY } from "../utils/hnLaterStorage";
+import { createLatestAsyncRunner } from "../utils/latestAsyncRunner";
 
 import { THREADS_BY_ID_KEY } from "../utils/hnLaterStorage";
 import { hnLaterMessenger } from "../utils/hnLaterMessaging";
@@ -558,13 +560,48 @@ function registerMessageListener() {
 async function initListingPage() {
   ensureStyles();
 
-  const threads = await listThreads();
-  const savedIds = new Set(threads.map((t) => t.id));
-  const linkByStoryId = new Map<string, HTMLAnchorElement>();
+  const loadSavedStoryIds = async () => new Set((await listThreads()).map((t) => t.id));
+  let savedStoryIds = await loadSavedStoryIds();
 
-  function renderListingSaveLabels() {
-    syncListingSaveLabels(linkByStoryId, savedIds);
+  const saveLinkByStoryId = new Map<string, HTMLAnchorElement>();
+
+  function renderSaveLinks() {
+    for (const [storyId, link] of saveLinkByStoryId) {
+      link.textContent = savedStoryIds.has(storyId) ? "saved" : "later";
+    }
   }
+
+  function setSavedStoryIds(nextSavedStoryIds: Set<string>) {
+    savedStoryIds = nextSavedStoryIds;
+    renderSaveLinks();
+  }
+
+  const savedStoryIdsRefresh = createLatestAsyncRunner(loadSavedStoryIds, setSavedStoryIds);
+
+  const onStorageChanged = (
+    changes: Record<string, Browser.storage.StorageChange>,
+    area: string,
+  ) => {
+    if (area !== "local") return;
+    const threadChange = changes[THREADS_BY_ID_KEY];
+    if (!threadChange) return;
+
+    const nextSavedStoryIds = new Set(
+      Object.keys((threadChange.newValue ?? {}) as Record<string, unknown>),
+    );
+    savedStoryIdsRefresh.invalidate();
+    setSavedStoryIds(nextSavedStoryIds);
+  };
+
+  browser.storage.onChanged.addListener(onStorageChanged);
+
+  const refreshIfVisible = () => {
+    if (document.visibilityState !== "visible") return;
+    void savedStoryIdsRefresh.run();
+  };
+
+  window.addEventListener("focus", refreshIfVisible);
+  window.addEventListener("pageshow", refreshIfVisible);
 
   const storyRows = Array.from(document.querySelectorAll<HTMLTableRowElement>("tr.athing"));
   for (const row of storyRows) {
@@ -586,45 +623,34 @@ async function initListingPage() {
     link.href = "#";
     link.className = "hn-later-link";
     link.dataset.hnLaterStoryId = storyId;
-    linkByStoryId.set(storyId, link);
+    link.textContent = savedStoryIds.has(storyId) ? "saved" : "later";
+    saveLinkByStoryId.set(storyId, link);
     link.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
 
-      if (savedIds.has(storyId)) {
+      if (savedStoryIds.has(storyId)) {
         await removeThread(storyId);
-        savedIds.delete(storyId);
-        renderListingSaveLabels();
+        const nextSavedStoryIds = new Set(savedStoryIds);
+        nextSavedStoryIds.delete(storyId);
+        savedStoryIdsRefresh.invalidate();
+        setSavedStoryIds(nextSavedStoryIds);
         return;
       }
 
       const hnPostedAt = getStoryPostedAtFromListingSubtext(subtextTd);
       await upsertThread({ id: storyId, title, url: itemUrl, hnPostedAt });
-      savedIds.add(storyId);
-      renderListingSaveLabels();
+      const nextSavedStoryIds = new Set(savedStoryIds);
+      nextSavedStoryIds.add(storyId);
+      savedStoryIdsRefresh.invalidate();
+      setSavedStoryIds(nextSavedStoryIds);
     });
 
     subtextTd.appendChild(sep);
     subtextTd.appendChild(link);
   }
 
-  renderListingSaveLabels();
-
-  const listener = (changes: Record<string, Browser.storage.StorageChange>, area: string) => {
-    if (area !== "local") return;
-
-    const threadChange = changes[THREADS_BY_ID_KEY];
-    if (!threadChange) return;
-
-    const nextThreadsById = (threadChange.newValue ?? {}) as Record<string, unknown>;
-    savedIds.clear();
-    for (const storyId of Object.keys(nextThreadsById)) {
-      savedIds.add(storyId);
-    }
-    renderListingSaveLabels();
-  };
-
-  browser.storage.onChanged.addListener(listener);
+  renderSaveLinks();
 }
 
 async function initItemPage(url: URL) {

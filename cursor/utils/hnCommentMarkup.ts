@@ -98,7 +98,7 @@ export function sanitizeStarredCommentHtml(input: string | null | undefined): st
 
   out += closeAllTags(openTags);
 
-  const sanitized = out.trim();
+  const sanitized = normalizeTopLevelParagraphs(out.trim());
   if (!sanitized.length) return undefined;
   return hasRenderableText(sanitized) ? sanitized : undefined;
 }
@@ -240,6 +240,78 @@ function closeAllTags(openTags: string[]): string {
   }
   openTags.length = 0;
   return out;
+}
+
+function normalizeTopLevelParagraphs(html: string): string {
+  if (!html.length) return html;
+
+  let out = "";
+  let paragraphBuffer = "";
+  const openTags: string[] = [];
+
+  const flushParagraph = () => {
+    const content = paragraphBuffer.trim();
+    paragraphBuffer = "";
+    if (!content.length) return;
+    if (!hasRenderableText(content)) return;
+    out += `<p>${content}</p>`;
+  };
+
+  for (const token of tokenizeHtmlFragment(html)) {
+    if (token.type === "comment") continue;
+
+    if (token.type === "text") {
+      if (openTags.length) {
+        out += token.raw;
+      } else {
+        paragraphBuffer += token.raw;
+      }
+      continue;
+    }
+
+    const tag = parseHtmlTag(token.raw);
+    if (!tag) {
+      if (openTags.length) {
+        out += token.raw;
+      } else {
+        paragraphBuffer += token.raw;
+      }
+      continue;
+    }
+
+    if (!openTags.length) {
+      if (!tag.closing && isBlockTag(tag.name)) {
+        flushParagraph();
+        out += token.raw;
+        if (!tag.selfClosing) openTags.push(tag.name);
+        continue;
+      }
+
+      paragraphBuffer += token.raw;
+      continue;
+    }
+
+    out += token.raw;
+    if (tag.closing) {
+      closeTagStack(openTags, tag.name);
+      continue;
+    }
+
+    if (!tag.selfClosing) openTags.push(tag.name);
+  }
+
+  flushParagraph();
+  return out.trim();
+}
+
+function isBlockTag(tagName: string): boolean {
+  return tagName === "p" || tagName === "pre";
+}
+
+function closeTagStack(openTags: string[], tagName: string): void {
+  const idx = openTags.lastIndexOf(tagName);
+  if (idx === -1) return;
+  openTags.length = idx;
 }
 
 function hasRenderableText(html: string): boolean {

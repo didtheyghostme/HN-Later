@@ -24,6 +24,30 @@ describe("sanitizeStarredCommentHtml", () => {
   it("returns undefined when only blocked content remains", () => {
     expect(sanitizeStarredCommentHtml('<script>alert("x")</script>')).toBeUndefined();
   });
+
+  it("wraps leading inline content into a synthetic paragraph", () => {
+    expect(sanitizeStarredCommentHtml("Text with <i>inline</i> markup<p>Next paragraph</p>")).toBe(
+      "<p>Text with <i>inline</i> markup</p><p>Next paragraph</p>",
+    );
+  });
+
+  it("flushes a synthetic paragraph before a top-level pre block", () => {
+    expect(
+      sanitizeStarredCommentHtml(
+        "Leading text<pre><code>const x = 1;</code></pre><p>Afterward</p>",
+      ),
+    ).toBe("<p>Leading text</p><pre><code>const x = 1;</code></pre><p>Afterward</p>");
+  });
+
+  it("normalizes the HN pattern of leading text followed by paragraph tags", () => {
+    expect(
+      sanitizeStarredCommentHtml(
+        "Figuring out how to trust AI-written code faster is <i>the</i> project of software engineering for the next few years, IMO.<p>We'll need to figure out the techniques.</p>",
+      ),
+    ).toBe(
+      "<p>Figuring out how to trust AI-written code faster is <i>the</i> project of software engineering for the next few years, IMO.</p><p>We'll need to figure out the techniques.</p>",
+    );
+  });
 });
 
 describe("buildCapturedStarredCommentContent", () => {

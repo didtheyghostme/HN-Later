@@ -61,6 +61,6 @@ describe("parseHnLaterBackupText", () => {
       makeBackup({ commentHtml: '<script>alert(1)</script><a href="javascript:evil()">click</a>' }),
     );
 
-    expect(parsed.commentStarsById["10"]?.commentHtml).toBe("click");
+    expect(parsed.commentStarsById["10"]?.commentHtml).toBe("<p>click</p>");
   });
 });

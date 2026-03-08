@@ -623,10 +623,9 @@ async function initListingPage() {
   ensureStyles();
 
   let savedIds = new Set((await listThreads()).map((t) => t.id));
+  let refreshVersion = 0;
 
-  async function refreshSavedStoryLinks() {
-    savedIds = new Set((await listThreads()).map((t) => t.id));
-
+  function renderSavedStoryLinks() {
     for (const link of Array.from(
       document.querySelectorAll<HTMLAnchorElement>("a[data-hn-later-story-id]"),
     )) {
@@ -636,13 +635,30 @@ async function initListingPage() {
     }
   }
 
+  function applySavedIds(nextSavedIds: Set<string>) {
+    savedIds = nextSavedIds;
+    renderSavedStoryLinks();
+  }
+
+  async function refreshSavedStoryLinks() {
+    const requestVersion = ++refreshVersion;
+    const nextSavedIds = new Set((await listThreads()).map((t) => t.id));
+    if (requestVersion !== refreshVersion) return;
+
+    applySavedIds(nextSavedIds);
+  }
+
   const onStorageChanged = (
     changes: Record<string, Browser.storage.StorageChange>,
     area: string,
   ) => {
     if (area !== "local") return;
-    if (!changes[THREADS_BY_ID_KEY]) return;
-    void refreshSavedStoryLinks();
+    const threadChange = changes[THREADS_BY_ID_KEY];
+    if (!threadChange) return;
+
+    refreshVersion += 1;
+    const nextThreadsById = (threadChange.newValue ?? {}) as Record<string, unknown>;
+    applySavedIds(new Set(Object.keys(nextThreadsById)));
   };
 
   browser.storage.onChanged.addListener(onStorageChanged);

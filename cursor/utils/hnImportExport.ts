@@ -5,6 +5,7 @@ import {
   setThreadsById,
 } from "./hnLaterStorage";
 import type { StarredCommentRecord } from "./hnCommentStars";
+import { sanitizeStarredCommentHtml } from "./hnCommentMarkup";
 import type { FrozenProgress, ThreadRecord, ThreadStats, ThreadStatus } from "./hnStorage";
 
 export const HN_LATER_EXPORT_SCHEMA_VERSION = 2 as const;
@@ -80,12 +81,15 @@ function parseThreadStats(value: unknown): ThreadStats | undefined {
     throw new Error("Invalid cachedStats.newCount in backup (expected number).");
   }
 
-  return newCount != null ? { totalComments, readCount, percent, newCount } : { totalComments, readCount, percent };
+  return newCount != null
+    ? { totalComments, readCount, percent, newCount }
+    : { totalComments, readCount, percent };
 }
 
 function parseSeenNewCommentIds(value: unknown): number[] | undefined {
   if (value == null) return undefined;
-  if (!Array.isArray(value)) throw new Error("Invalid seenNewCommentIds in backup (expected array).");
+  if (!Array.isArray(value))
+    throw new Error("Invalid seenNewCommentIds in backup (expected array).");
   const out: number[] = [];
   for (const v of value) {
     if (isFiniteNumber(v)) out.push(v);
@@ -103,10 +107,7 @@ function parseReadCommentIds(value: unknown): number[] | undefined {
   return out.length ? out : undefined;
 }
 
-function parseOptionalTrimmedStringField(
-  value: unknown,
-  fieldName: string,
-): string | undefined {
+function parseOptionalTrimmedStringField(value: unknown, fieldName: string): string | undefined {
   if (value == null) return undefined;
   if (typeof value !== "string") {
     throw new Error(`Invalid ${fieldName} in backup (expected string).`);
@@ -128,7 +129,9 @@ function parseStarredCommentRecord(idFromKey: string, value: unknown): StarredCo
       ? commentIdFromKey
       : undefined;
   if (!isFiniteNumber(commentId)) {
-    throw new Error(`Invalid commentId for starred comment "${idFromKey}" in backup (expected number).`);
+    throw new Error(
+      `Invalid commentId for starred comment "${idFromKey}" in backup (expected number).`,
+    );
   }
 
   const storyId = value.storyId;
@@ -143,7 +146,9 @@ function parseStarredCommentRecord(idFromKey: string, value: unknown): StarredCo
   if (!isNonEmptyString(storyUrl))
     throw new Error(`Invalid storyUrl for starred comment "${idFromKey}" in backup.`);
   if (!isFiniteNumber(starredAt))
-    throw new Error(`Invalid starredAt for starred comment "${idFromKey}" in backup (expected number).`);
+    throw new Error(
+      `Invalid starredAt for starred comment "${idFromKey}" in backup (expected number).`,
+    );
 
   const author = value.author;
   const commentText = value.commentText;
@@ -153,6 +158,11 @@ function parseStarredCommentRecord(idFromKey: string, value: unknown): StarredCo
   if (!isNonEmptyString(commentText)) {
     throw new Error(`Invalid commentText for starred comment "${idFromKey}" in backup.`);
   }
+  const commentHtmlRaw = value.commentHtml;
+  if (commentHtmlRaw != null && typeof commentHtmlRaw !== "string") {
+    throw new Error(`Invalid commentHtml for starred comment "${idFromKey}" in backup.`);
+  }
+  const commentHtml = sanitizeStarredCommentHtml(commentHtmlRaw);
   const note = parseOptionalTrimmedStringField(value.note, "note");
   const noteUpdatedAtRaw = value.noteUpdatedAt;
   const noteUpdatedAt =
@@ -174,6 +184,7 @@ function parseStarredCommentRecord(idFromKey: string, value: unknown): StarredCo
     starredAt,
     author: author.trim(),
     commentText: commentText.trim(),
+    ...(commentHtml ? { commentHtml } : {}),
     ...(note ? { note } : {}),
     ...(noteUpdatedAt != null ? { noteUpdatedAt } : {}),
   };
@@ -181,7 +192,8 @@ function parseStarredCommentRecord(idFromKey: string, value: unknown): StarredCo
 
 function parseCommentStarsById(value: unknown): Record<string, StarredCommentRecord> {
   if (value == null) return {};
-  if (!isPlainObject(value)) throw new Error('Invalid backup commentStarsById (expected an object like {"123": {...}}).');
+  if (!isPlainObject(value))
+    throw new Error('Invalid backup commentStarsById (expected an object like {"123": {...}}).');
 
   const out: Record<string, StarredCommentRecord> = {};
   for (const [key, v] of Object.entries(value)) {
@@ -193,7 +205,8 @@ function parseCommentStarsById(value: unknown): Record<string, StarredCommentRec
 
 function parseThreadRecord(idFromKey: string, value: unknown): ThreadRecord {
   assertSafeRecordKey(idFromKey);
-  if (!isPlainObject(value)) throw new Error(`Invalid thread record for "${idFromKey}" (expected object).`);
+  if (!isPlainObject(value))
+    throw new Error(`Invalid thread record for "${idFromKey}" (expected object).`);
 
   const idRaw = value.id;
   const id = isNonEmptyString(idRaw) ? idRaw : idFromKey;
@@ -205,7 +218,8 @@ function parseThreadRecord(idFromKey: string, value: unknown): ThreadRecord {
 
   if (!isNonEmptyString(title)) throw new Error(`Invalid title for "${id}" in backup.`);
   if (!isNonEmptyString(url)) throw new Error(`Invalid url for "${id}" in backup.`);
-  if (!isFiniteNumber(addedAt)) throw new Error(`Invalid addedAt for "${id}" in backup (expected number).`);
+  if (!isFiniteNumber(addedAt))
+    throw new Error(`Invalid addedAt for "${id}" in backup (expected number).`);
 
   const hnPostedAt = value.hnPostedAt;
   const lastVisitedAt = value.lastVisitedAt;
@@ -290,7 +304,9 @@ export function parseHnLaterBackupText(fileText: string): HnLaterExportV2 {
   }
 
   const commentStarsById =
-    schemaVersion === 1 ? {} : parseCommentStarsById((parsed as Record<string, unknown>).commentStarsById);
+    schemaVersion === 1
+      ? {}
+      : parseCommentStarsById((parsed as Record<string, unknown>).commentStarsById);
 
   return {
     schemaVersion: HN_LATER_EXPORT_SCHEMA_VERSION,
@@ -325,4 +341,3 @@ export async function importHnLaterData(
   await setCommentStarsById(mergedStars);
   return { importedCount };
 }
-

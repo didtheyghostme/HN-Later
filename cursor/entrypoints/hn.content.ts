@@ -29,10 +29,7 @@ import { planSeenNewCommentUpdate } from "../utils/seenNewCommentUpdate";
 import { didStoryThreadChange, shouldBootstrapSavedThread } from "../utils/threadSync";
 import { getHnItemPageBehavior } from "../utils/hnItemPageBehavior";
 import { applyStoredStorySummaryDelta } from "../utils/storySummaryDelta";
-import {
-  resolveHnItemPageContext,
-  type HnItemPageLink,
-} from "../utils/hnItemPageContext";
+import { resolveHnItemPageContext, type HnItemPageLink } from "../utils/hnItemPageContext";
 import {
   getStarredCommentsById,
   removeStarredComment,
@@ -40,6 +37,7 @@ import {
   upsertStarredComment,
   type StarredCommentRecord,
 } from "../utils/hnCommentStars";
+import { buildCapturedStarredCommentContent } from "../utils/hnCommentMarkup";
 
 const ITEM_BASE_URL = "https://news.ycombinator.com/item?id=";
 const BOOTSTRAP_SUMMARY_HASH = "#hn-later-bootstrap-summary";
@@ -897,7 +895,11 @@ async function initItemPage(url: URL) {
       thread = await getThread(storyIdStr);
       if (!thread) return;
 
-      if (options.allowBootstrap && allowBootstrapFromCurrentPage && shouldBootstrapSavedThread(thread, commentIds)) {
+      if (
+        options.allowBootstrap &&
+        allowBootstrapFromCurrentPage &&
+        shouldBootstrapSavedThread(thread, commentIds)
+      ) {
         await bootstrapSavedThreadFromCurrentPage();
         return;
       }
@@ -1098,17 +1100,18 @@ async function initItemPage(url: URL) {
     return row.querySelector<HTMLElement>(".commtext");
   }
 
-  function extractCommentText(row: HTMLTableRowElement): string | undefined {
+  function extractCommentContent(row: HTMLTableRowElement): {
+    commentText?: string;
+    commentHtml?: string;
+  } {
     const el = getCommTextEl(row);
-    if (!el) return undefined;
+    if (!el) return {};
 
-    // Prefer textContent (works even if the comment is collapsed/hidden).
-    const fromTextContent = el.textContent?.trim();
-    if (fromTextContent) return fromTextContent;
-
-    // Fallback to innerText (visible rendering).
-    const fromInnerText = el.innerText?.trim();
-    return fromInnerText || undefined;
+    return buildCapturedStarredCommentContent({
+      textContent: el.textContent,
+      innerText: el.innerText,
+      innerHtml: el.innerHTML,
+    });
   }
 
   function flashStarError(comhead: HTMLElement, commentId: number, message: string) {
@@ -1321,8 +1324,8 @@ async function initItemPage(url: URL) {
         }
 
         const author = extractCommentAuthor(row);
-        const commentText = extractCommentText(row);
-        if (!author || !commentText) {
+        const comment = extractCommentContent(row);
+        if (!author || !comment.commentText) {
           flashStarError(comhead, commentId, "Couldn’t capture comment (expand and retry)");
           return;
         }
@@ -1333,7 +1336,8 @@ async function initItemPage(url: URL) {
           storyTitle: title,
           storyUrl: itemUrl,
           author,
-          commentText,
+          commentText: comment.commentText,
+          commentHtml: comment.commentHtml,
           starredAt: Date.now(),
         };
 

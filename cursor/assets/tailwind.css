@@ -1,3 +1,41 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.hn-later-rich-comment {
+  line-height: 1.45;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.hn-later-rich-comment p {
+  margin: 0 0 0.5rem;
+}
+
+.hn-later-rich-comment p:last-child {
+  margin-bottom: 0;
+}
+
+.hn-later-rich-comment a {
+  text-decoration: underline;
+}
+
+.hn-later-rich-comment pre {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.05);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.hn-later-rich-comment code {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  font-size: 0.95em;
+}
+
+.hn-later-rich-comment pre code {
+  font-size: inherit;
+}

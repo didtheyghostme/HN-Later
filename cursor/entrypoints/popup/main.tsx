@@ -25,6 +25,7 @@ import {
   removeStarredComment,
   type StarredCommentRecord,
 } from "../../utils/hnCommentStars";
+import { sanitizeStarredCommentHtml } from "../../utils/hnCommentMarkup";
 
 const hnLaterService = getHnLaterService();
 
@@ -109,6 +110,24 @@ function MoreDropdown({
         })}
       </ul>
     </details>
+  );
+}
+
+function StarredCommentBody({ star }: { star: StarredCommentRecord }) {
+  const commentHtml = sanitizeStarredCommentHtml(star.commentHtml);
+  if (!commentHtml) {
+    return (
+      <div className="max-h-48 overflow-auto whitespace-pre-wrap text-xs opacity-90">
+        {star.commentText}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="hn-later-rich-comment max-h-48 overflow-auto text-xs opacity-90"
+      dangerouslySetInnerHTML={{ __html: commentHtml }}
+    />
   );
 }
 
@@ -416,8 +435,7 @@ function App() {
               <div className="min-w-0">
                 <div className="line-clamp-2 text-sm font-medium">{s.storyTitle}</div>
                 <div className="mt-1 text-[11px] opacity-70">
-                  Starred {formatRelative(s.starredAt)}{" "}
-                  · {s.author} · #{s.commentId}
+                  Starred {formatRelative(s.starredAt)} · {s.author} · #{s.commentId}
                 </div>
                 <div className="mt-1 line-clamp-3 text-xs opacity-80">
                   {s.commentText.replace(/\s+/g, " ").trim()}
@@ -428,9 +446,7 @@ function App() {
                     Full comment
                   </summary>
                   <div className="collapse-content">
-                    <div className="max-h-48 overflow-auto whitespace-pre-wrap text-xs opacity-90">
-                      {s.commentText}
-                    </div>
+                    <StarredCommentBody star={s} />
                   </div>
                 </details>
                 {s.note ? (

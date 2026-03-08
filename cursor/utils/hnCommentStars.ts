@@ -1,4 +1,5 @@
 import { getCommentStarsById, setCommentStarsById } from "./hnLaterStorage";
+import { sanitizeStarredCommentHtml } from "./hnCommentMarkup";
 
 export type StarredCommentRecord = {
   commentId: number;
@@ -7,6 +8,7 @@ export type StarredCommentRecord = {
   storyUrl: string;
   author: string;
   commentText: string;
+  commentHtml?: string;
   starredAt: number;
   note?: string;
   noteUpdatedAt?: number;
@@ -65,6 +67,7 @@ export async function upsertStarredComment(record: StarredCommentRecord): Promis
     storyUrl: record.storyUrl.trim(),
     author: trimRequired(record.author, "author"),
     commentText: trimRequired(record.commentText, "commentText"),
+    commentHtml: sanitizeStarredCommentHtml(record.commentHtml),
     note: trimOrUndefined(record.note),
   };
   await setCommentStarsById(starsById);
@@ -96,8 +99,9 @@ export async function setStarredCommentNote(commentId: number, note: string): Pr
 
   starsById[key] = {
     ...existing,
-    ...(nextNote ? { note: nextNote, noteUpdatedAt: Date.now() } : { note: undefined, noteUpdatedAt: undefined }),
+    ...(nextNote
+      ? { note: nextNote, noteUpdatedAt: Date.now() }
+      : { note: undefined, noteUpdatedAt: undefined }),
   };
   await setCommentStarsById(starsById);
 }
-

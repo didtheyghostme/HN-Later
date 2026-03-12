@@ -134,6 +134,17 @@ function ensureStyles() {
     .hn-later-link { font-size: 10px; opacity: 0.85; }
     .hn-later-link:hover { opacity: 1; }
 
+    .hn-later-link--saved {
+      color: #2e8b57;
+      opacity: 1;
+      font-weight: 600;
+      border: 1px solid #2e8b57;
+      border-radius: 999px;
+      padding: 0px 5px;
+      text-decoration: none;
+    }
+    .hn-later-link--saved:hover { opacity: 0.8; }
+
     .hn-later-toolbar {
       margin: 6px 0 10px 0;
       padding: 6px 8px;
@@ -629,7 +640,9 @@ async function initListingPage() {
     )) {
       const storyId = link.dataset.hnLaterStoryId;
       if (!storyId) continue;
-      link.textContent = savedIds.has(storyId) ? "saved" : "later";
+      const isSaved = savedIds.has(storyId);
+      link.textContent = isSaved ? "✓ saved" : "later";
+      link.classList.toggle("hn-later-link--saved", isSaved);
     }
   }
 
@@ -690,7 +703,9 @@ async function initListingPage() {
     link.href = "#";
     link.className = "hn-later-link";
     link.dataset.hnLaterStoryId = storyId;
-    link.textContent = savedIds.has(storyId) ? "saved" : "later";
+    const isSaved = savedIds.has(storyId);
+    link.textContent = isSaved ? "✓ saved" : "later";
+    if (isSaved) link.classList.add("hn-later-link--saved");
     link.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();

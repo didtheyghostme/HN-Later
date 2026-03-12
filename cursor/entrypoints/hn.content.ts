@@ -133,17 +133,20 @@ function ensureStyles() {
   style.textContent = `
     .hn-later-link { font-size: 10px; opacity: 0.85; }
     .hn-later-link:hover { opacity: 1; }
-
-    .hn-later-link--saved {
-      color: #2e8b57;
+    td.subtext a.hn-later-link--saved,
+    td.subtext a.hn-later-link--saved:visited {
+      color: #3d9a50;
       opacity: 1;
       font-weight: 600;
-      border: 1px solid #2e8b57;
+      border: 1px solid #3d9a50;
       border-radius: 999px;
-      padding: 0px 5px;
+      padding: 0 5px;
       text-decoration: none;
     }
-    .hn-later-link--saved:hover { opacity: 0.8; }
+    td.subtext a.hn-later-link--saved:hover {
+      color: #3d9a50;
+      opacity: 0.85;
+    }
 
     .hn-later-toolbar {
       margin: 6px 0 10px 0;

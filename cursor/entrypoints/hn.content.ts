@@ -135,18 +135,19 @@ function ensureStyles() {
     .hn-later-link:hover { opacity: 1; }
     td.subtext a.hn-later-link--saved,
     td.subtext a.hn-later-link--saved:visited {
-      color: #3d9a50;
+      color: #ff6600;
+      background: transparent;
       opacity: 1;
       font-weight: 600;
-      border: 1px solid #3d9a50;
+      border: 1px solid #ff6600;
       border-radius: 999px;
       padding: 0 5px;
       text-decoration: none;
     }
     td.subtext a.hn-later-link--saved:hover {
-      color: #3d9a50;
       opacity: 0.85;
     }
+
 
     .hn-later-toolbar {
       margin: 6px 0 10px 0;
@@ -644,6 +645,7 @@ async function initListingPage() {
       const storyId = link.dataset.hnLaterStoryId;
       if (!storyId) continue;
       const isSaved = savedIds.has(storyId);
+      
       link.textContent = isSaved ? "✓ saved" : "later";
       link.classList.toggle("hn-later-link--saved", isSaved);
     }

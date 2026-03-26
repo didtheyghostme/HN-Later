@@ -1259,9 +1259,9 @@ async function initItemPage(url: URL) {
     saveBtn.type = "button";
     saveBtn.textContent = "Save";
 
-    const doneBtn = document.createElement("button");
-    doneBtn.type = "button";
-    doneBtn.textContent = "Done";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.textContent = "Cancel";
 
     const save = async () => {
       const now = Date.now();
@@ -1283,7 +1283,7 @@ async function initItemPage(url: URL) {
       await save();
     });
 
-    doneBtn.addEventListener("click", (e) => {
+    cancelBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       container.dataset.hnLaterNoteEditing = "0";
@@ -1298,7 +1298,7 @@ async function initItemPage(url: URL) {
     });
 
     btnRow.appendChild(saveBtn);
-    btnRow.appendChild(doneBtn);
+    btnRow.appendChild(cancelBtn);
 
     container.appendChild(textarea);
     container.appendChild(btnRow);

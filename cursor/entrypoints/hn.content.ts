@@ -1297,8 +1297,8 @@ async function initItemPage(url: URL) {
       await save();
     });
 
-    btnRow.appendChild(saveBtn);
     btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(saveBtn);
 
     container.appendChild(textarea);
     container.appendChild(btnRow);

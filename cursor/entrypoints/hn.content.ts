@@ -1254,6 +1254,7 @@ async function initItemPage(url: URL) {
     btnRow.style.marginTop = "6px";
     btnRow.style.display = "flex";
     btnRow.style.gap = "8px";
+    btnRow.style.justifyContent = "flex-end";
 
     const saveBtn = document.createElement("button");
     saveBtn.type = "button";

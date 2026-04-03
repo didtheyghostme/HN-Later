@@ -1217,21 +1217,6 @@ async function initItemPage(url: URL) {
       });
       actions.appendChild(editLink);
 
-      if (record.note) {
-        const clearLink = document.createElement("a");
-        clearLink.href = "#";
-        clearLink.textContent = "Clear";
-        clearLink.addEventListener("click", async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          await setStarredCommentNote(commentId, "");
-          starsById[key] = { ...record, note: undefined, noteUpdatedAt: undefined };
-          container.dataset.hnLaterNoteEditing = "0";
-          renderInlineNote(row, commentId);
-        });
-        actions.appendChild(clearLink);
-      }
-
       container.appendChild(header);
 
       if (record.note) {

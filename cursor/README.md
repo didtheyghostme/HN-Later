@@ -1,5 +1,7 @@
 # HN Later
 
+<img width="1602" height="1090" alt="Image" src="https://github.com/user-attachments/assets/0f17cb43-1c28-4b93-846b-23b4a7f3bd1d" />
+
 A **Manifest V3** Chrome extension for `news.ycombinator.com`:
 
 - Save threads to a **Read Later** list

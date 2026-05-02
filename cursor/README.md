@@ -1,6 +1,27 @@
 # HN Later
 
-<img width="1602" height="1090" alt="Image" src="https://github.com/user-attachments/assets/0f17cb43-1c28-4b93-846b-23b4a7f3bd1d" />
+<table>
+  <tr>
+    <td width="67%">
+      <img
+        src="https://github.com/user-attachments/assets/0f17cb43-1c28-4b93-846b-23b4a7f3bd1d"
+        alt="HN Later reading progress on a Hacker News thread"
+        width="100%"
+      />
+    </td>
+    <td width="33%">
+      <img
+        src="https://github.com/user-attachments/assets/99b59423-9e24-4a9c-8e29-224f97cfa25f"
+        alt="HN Later extension popup showing saved threads"
+        width="100%"
+      />
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Reading progress inside HN threads</strong></td>
+    <td align="center"><strong>Read Later popup</strong></td>
+  </tr>
+</table>
 
 Chrome extension for `news.ycombinator.com`:
 

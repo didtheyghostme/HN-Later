@@ -130,6 +130,10 @@ From there:
 - **Export (Backup)**: downloads a JSON file containing your saved threads + progress + starred comments + notes
 - **Import (Restore)**: load a backup JSON and choose **Merge** (safe) or **Replace all** (overwrites everything)
 
+## Development note
+
+This project was built through vibe coding and works for my own HN reading workflow.  
+
 ## Notes / limitations
 
 - Progress tracking is **read-set based**: read/unread is stored as a set of comment IDs, so comment reorders don’t regress progress.

@@ -132,7 +132,7 @@ From there:
 
 ## Development note
 
-This project was built through vibe coding and works for my own HN reading workflow.  
+This project was built as an exploration of vibe coding and works for my own HN reading workflow.  
 
 ## Notes / limitations
 

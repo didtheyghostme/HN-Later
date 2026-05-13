@@ -51,7 +51,7 @@ Chrome extension for `news.ycombinator.com`:
 ### Install
 
 ```bash
-npm install
+npm ci
 ```
 
 ### Build

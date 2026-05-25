@@ -29,7 +29,6 @@ Chrome extension for `news.ycombinator.com`:
 - Track comment reading progress with a **Mark-to-here** marker
 - Show **% read** per thread (saved)
 - Highlight **new comments** (new arrivals since you last acknowledged them)
-- Highlight the viewed user's author name on HN profile comments pages (`/threads?id=...`)
 - Star individual **comments** (with optional **notes**) for revisiting
 - **Continue** (resume where you left off)
 - Navigate through **unread comments** with a floating navigator
@@ -95,10 +94,10 @@ WXT will run the extension in a dev browser profile with hot reload.
 - Unread comments show a blue gutter bar on the left.
 - New comments show a **[NEW]** chip next to the timestamp.
 
-### Reading aids
+### Comment highlights
 
 - On item pages (`/item?id=...`), submitter comments are labeled with an **OP** chip.
-- On profile comments pages (`/threads?id=<user>`), the viewed user's author name is highlighted.
+- On profile comments pages (`/threads?id=<user>`), the viewed user's username is highlighted.
 
 ### Star comments (with notes)
 

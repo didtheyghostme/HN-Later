@@ -28,6 +28,10 @@ import { ensureBaselineMaxSeen } from "../utils/ensureBaseline";
 import { planSeenNewCommentUpdate } from "../utils/seenNewCommentUpdate";
 import { didStoryThreadChange, shouldBootstrapSavedThread } from "../utils/threadSync";
 import { getHnItemPageBehavior } from "../utils/hnItemPageBehavior";
+import {
+  getHnProfileThreadsUsernameFromUrl,
+  isProfileThreadsCommentAuthor,
+} from "../utils/hnProfileThreadsPage";
 import { applyStoredStorySummaryDelta } from "../utils/storySummaryDelta";
 import { resolveHnItemPageContext, type HnItemPageLink } from "../utils/hnItemPageContext";
 import {
@@ -207,7 +211,14 @@ function ensureStyles() {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
 
-
+    span.comhead a.hnuser.hn-later-profile-user {
+      color: #115BCA;
+      font-weight: 700;
+      background: rgba(0, 102, 255, 0.12);
+      border-radius: 2px;
+      padding: 0 2px;
+      text-decoration: none;
+    }
 
     .hn-later-star { margin-left: 6px; font-size: 12px; opacity: 0.9; text-decoration: none; }
     .hn-later-star:hover { opacity: 1; }
@@ -362,6 +373,19 @@ function ensureOpChip(comhead: HTMLElement, userLink: HTMLAnchorElement): void {
   chip.title = "Submitter (OP)";
 
   userLink.insertAdjacentElement("afterend", chip);
+}
+
+function applyProfileThreadsUserHighlights(profileUsername: string): void {
+  const commentRows = getCommentRows();
+
+  for (const row of commentRows) {
+    const userLink = row.querySelector<HTMLAnchorElement>("span.comhead a.hnuser");
+    if (!userLink) continue;
+    if (!isProfileThreadsCommentAuthor(profileUsername, userLink.textContent)) continue;
+
+    userLink.classList.add("hn-later-profile-user");
+    userLink.title = "Comment by viewed profile user";
+  }
 }
 
 function removeNewChips(row: HTMLTableRowElement) {
@@ -635,6 +659,11 @@ function registerMessageListener() {
 async function initListingPage() {
   ensureStyles();
 
+  const profileThreadsUsername = getHnProfileThreadsUsernameFromUrl(new URL(window.location.href));
+  if (profileThreadsUsername) {
+    applyProfileThreadsUserHighlights(profileThreadsUsername);
+  }
+
   let savedIds = new Set((await listThreads()).map((t) => t.id));
   let refreshVersion = 0;
 
@@ -645,7 +674,7 @@ async function initListingPage() {
       const storyId = link.dataset.hnLaterStoryId;
       if (!storyId) continue;
       const isSaved = savedIds.has(storyId);
-      
+
       link.textContent = isSaved ? "✓ saved" : "later";
       link.classList.toggle("hn-later-link--saved", isSaved);
     }

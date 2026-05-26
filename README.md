@@ -94,7 +94,7 @@ WXT will run the extension in a dev browser profile with hot reload.
 - Unread comments show a blue gutter bar on the left.
 - New comments show a **[NEW]** chip next to the timestamp.
 
-### Comment highlights
+### Comment cues
 
 - On item pages (`/item?id=...`), submitter comments are labeled with an **OP** chip.
 - On profile comments pages (`/threads?id=<user>`), the viewed user's username is highlighted.

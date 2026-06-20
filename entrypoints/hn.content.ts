@@ -33,7 +33,11 @@ import {
   isProfileThreadsCommentAuthor,
 } from "../utils/hnProfileThreadsPage";
 import { applyStoredStorySummaryDelta } from "../utils/storySummaryDelta";
-import { resolveHnItemPageContext, type HnItemPageLink } from "../utils/hnItemPageContext";
+import {
+  parseHnCommentIdFromHash,
+  resolveHnItemPageContext,
+  type HnItemPageLink,
+} from "../utils/hnItemPageContext";
 import {
   getStarredCommentsById,
   removeStarredComment,
@@ -508,6 +512,31 @@ function highlightRow(row: HTMLTableRowElement, className: string) {
   row.classList.add(className);
 }
 
+function clearHighlightedRow(className: string) {
+  if (!focusedRow) return;
+  focusedRow.classList.remove(className);
+  focusedRow = undefined;
+}
+
+function findCommentRowById(commentId: number): HTMLTableRowElement | undefined {
+  const el = document.getElementById(String(commentId));
+  if (el instanceof HTMLTableRowElement && el.matches("tr.athing.comtr")) return el;
+
+  const row = el?.closest("tr.athing.comtr");
+  return row instanceof HTMLTableRowElement ? row : undefined;
+}
+
+function applyCommentHashHighlight(hash: string | null | undefined = window.location.hash) {
+  const commentId = parseHnCommentIdFromHash(hash);
+  const row = commentId == null ? undefined : findCommentRowById(commentId);
+  if (!row) {
+    clearHighlightedRow("hn-later-highlight");
+    return;
+  }
+
+  highlightRow(row, "hn-later-highlight");
+}
+
 function createToolbarContainer(): HTMLDivElement {
   const el = document.createElement("div");
   el.className = "hn-later-toolbar";
@@ -784,6 +813,9 @@ async function initItemPage(url: URL) {
   const commentRows = getCommentRows();
   const commentIds = getCommentIdsInDomOrder(commentRows);
   const firstCommentRow = commentRows[0];
+
+  applyCommentHashHighlight();
+  window.addEventListener("hashchange", () => applyCommentHashHighlight());
 
   // Show an "OP" badge next to the submitter's username in comments.
   const storyAuthor = isCanonicalStoryPage ? getStoryAuthorFromItemDom() : undefined;

@@ -70,6 +70,14 @@ export function parseHnItemIdFromHref(href: string | null | undefined): string |
   }
 }
 
+export function parseHnCommentIdFromHash(hash: string | null | undefined): number | undefined {
+  const s = hash?.trim();
+  if (!s?.startsWith("#")) return undefined;
+
+  const id = normalizePositiveIntegerString(s.slice(1));
+  return id ? Number(id) : undefined;
+}
+
 export function resolveHnItemPageContext(input: HnItemPageContextInput): HnItemPageContext {
   const routeItemId = normalizePositiveIntegerString(input.routeItemId);
 

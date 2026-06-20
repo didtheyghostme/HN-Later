@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  parseHnCommentIdFromHash,
   parseHnItemIdFromHref,
   resolveHnItemPageContext,
 } from "./hnItemPageContext";
@@ -9,6 +10,26 @@ describe("parseHnItemIdFromHref", () => {
   it("handles relative item links and fragments", () => {
     expect(parseHnItemIdFromHref("/item?id=47278426#47278863")).toBe("47278426");
     expect(parseHnItemIdFromHref("item?id=47278426")).toBe("47278426");
+  });
+});
+
+describe("parseHnCommentIdFromHash", () => {
+  it("reads positive numeric comment hashes", () => {
+    expect(parseHnCommentIdFromHash("#48595815")).toBe(48595815);
+  });
+
+  it("rejects empty, nonnumeric, and unsafe hashes", () => {
+    expect(parseHnCommentIdFromHash("")).toBe(undefined);
+    expect(parseHnCommentIdFromHash("#")).toBe(undefined);
+    expect(parseHnCommentIdFromHash("#abc")).toBe(undefined);
+    expect(parseHnCommentIdFromHash("#0")).toBe(undefined);
+    expect(parseHnCommentIdFromHash("#-1")).toBe(undefined);
+    expect(parseHnCommentIdFromHash("#1.5")).toBe(undefined);
+    expect(parseHnCommentIdFromHash("#9007199254740992")).toBe(undefined);
+  });
+
+  it("rejects extension-specific hashes", () => {
+    expect(parseHnCommentIdFromHash("#hn-later-bootstrap-summary")).toBe(undefined);
   });
 });
 

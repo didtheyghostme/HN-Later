@@ -46,6 +46,7 @@ import {
   type StarredCommentRecord,
 } from "../utils/hnCommentStars";
 import { buildCapturedStarredCommentContent } from "../utils/hnCommentMarkup";
+import { getHnUserLink } from "../utils/hnUserLinks";
 
 const ITEM_BASE_URL = "https://news.ycombinator.com/item?id=";
 const BOOTSTRAP_SUMMARY_HASH = "#hn-later-bootstrap-summary";
@@ -119,16 +120,8 @@ function getStoryPostedAtFromItemDom(): number | undefined {
   return parseHnTitleTimestampToMs(ageTitle);
 }
 
-function getStoryAuthorLinkFromItemDom(): HTMLAnchorElement | null {
-  return (
-    document
-      .querySelector<HTMLTableElement>("table.fatitem")
-      ?.querySelector("td.subtext a.hnuser") ?? null
-  );
-}
-
 function getStoryAuthorFromItemDom(): string | undefined {
-  const s = getStoryAuthorLinkFromItemDom()?.textContent?.trim();
+  const s = getHnUserLink(document.querySelector("table.fatitem td.subtext"))?.textContent?.trim();
   return s || undefined;
 }
 
@@ -215,7 +208,7 @@ function ensureStyles() {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
 
-    span.comhead a.hnuser.hn-later-profile-user {
+    span.comhead a.hn-later-profile-user {
       color: #115BCA;
       font-weight: 700;
       background: rgba(0, 102, 255, 0.12);
@@ -383,7 +376,7 @@ function applyProfileThreadsUserHighlights(profileUsername: string): void {
   const commentRows = getCommentRows();
 
   for (const row of commentRows) {
-    const userLink = row.querySelector<HTMLAnchorElement>("span.comhead a.hnuser");
+    const userLink = getHnUserLink(row.querySelector("span.comhead"));
     if (!userLink) continue;
     if (!isProfileThreadsCommentAuthor(profileUsername, userLink.textContent)) continue;
 
@@ -824,7 +817,7 @@ async function initItemPage(url: URL) {
       const comhead = row.querySelector<HTMLElement>("span.comhead");
       if (!comhead) continue;
 
-      const userLink = comhead.querySelector<HTMLAnchorElement>("a.hnuser");
+      const userLink = getHnUserLink(comhead);
       if (!userLink) continue;
       if (userLink.textContent?.trim() !== storyAuthor) continue;
 
@@ -1172,7 +1165,7 @@ async function initItemPage(url: URL) {
   }
 
   function extractCommentAuthor(row: HTMLTableRowElement): string | undefined {
-    const s = row.querySelector<HTMLAnchorElement>("span.comhead a.hnuser")?.textContent?.trim();
+    const s = getHnUserLink(row.querySelector("span.comhead"))?.textContent?.trim();
     return s || undefined;
   }
 
